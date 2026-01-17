@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  # OpenWebUI Service
+  openwebui:
+    container_name: openwebui
+    image: ghcr.io/open-webui/open-webui:main
+    ports:
+      - "3000:8080"
+    volumes:
+      - openwebui-data:/app/backend/data
+    environment:
+      - OPENAI_API_BASE=http://mcpo-bridge:8080/mcp
+      - WEBUI_AUTH=false
+    networks:
+      - mcpo-network
+    depends_on:
+      mcpo-bridge:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # MCPO Bridge Service
+  mcpo-bridge:
+    container_name: mcpo-bridge
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - mcpo-jobs:/tmp/mcpo-jobs
+      - mcpo-config:/app/config:ro
+      - ./config:/app/config:ro
+    environment:
+      - MCPO_BASE_URL=http://mcpo-bridge:8080
+      - MCPO_CONFIG_FILE=/app/config/mcp-servers.json
+      - MCPO_JOBS_DIR=/tmp/mcpo-jobs
+      - MCPO_FILE_EXPIRY=3600
+      - MCPO_MAX_CONCURRENT=16
+      - MCPO_TIMEOUT=300
+      - MCPO_LOG_LEVEL=INFO
+    networks:
+      - mcpo-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  openwebui-data:
+    driver: local
+  mcpo-jobs:
+    driver: local
+  mcpo-config:
+    driver: local
+
+networks:
+  mcpo-network:
+    driver: bridge

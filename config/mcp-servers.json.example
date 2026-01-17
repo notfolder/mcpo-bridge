@@ -1,0 +1,28 @@
+{
+  "mcpServers": {
+    "pptx-generator": {
+      "command": "node",
+      "args": [
+        "/usr/local/bin/pptx-mcp-server",
+        "--workdir",
+        "__WORKDIR__"
+      ],
+      "env": {
+        "NODE_ENV": "production"
+      }
+    },
+    "pdf-generator": {
+      "command": "python",
+      "args": [
+        "/usr/local/bin/pdf-mcp-server.py",
+        "--output-dir",
+        "__WORKDIR__",
+        "--job-id",
+        "__JOB_ID__"
+      ],
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    }
+  }
+}
