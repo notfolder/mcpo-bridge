@@ -8,7 +8,7 @@ import json
 import logging
 from pathlib import Path
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Tuple
 
 from src.models.job import JobMetadata, JobStatus
 from src.core.config import settings
@@ -34,7 +34,7 @@ class JobManager:
         self.jobs_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"Jobs directory ensured: {self.jobs_dir}")
     
-    def create_job(self, server_type: str, client_ip: Optional[str] = None) -> tuple[str, Path]:
+    def create_job(self, server_type: str, client_ip: Optional[str] = None) -> Tuple[str, Path]:
         """
         新しいジョブを作成
         

@@ -10,6 +10,7 @@ import json
 import logging
 import signal
 import time
+import os
 from typing import Dict, Optional, Any, Tuple
 from pathlib import Path
 from datetime import datetime
@@ -294,7 +295,6 @@ class ProcessManager:
         env_vars = server_config.get("env", {})
         
         # 環境変数を構築
-        import os
         env = os.environ.copy()
         env.update(env_vars)
         env["MCPO_WORKDIR"] = str(job_dir)
@@ -340,15 +340,11 @@ class ProcessManager:
         
         try:
             # 標準入力にリクエストを書き込み、標準出力からレスポンスを読み込む
-            stdout_data, stderr_data = await asyncio.wait_for(
-                asyncio.create_subprocess_exec(
-                    *["echo", request_json],
-                    stdout=asyncio.subprocess.PIPE
-                ).communicate() if False else self._communicate_sync(process, request_bytes),
-                timeout=timeout
-            )
+            stdout_data, stderr_data = await self._communicate_sync(process, request_bytes, timeout)
             
-            exit_code = process.wait(timeout=1)
+            # 終了コードを取得（非同期）
+            loop = asyncio.get_event_loop()
+            exit_code = await loop.run_in_executor(None, lambda: process.wait(timeout=1))
             
             # レスポンスをパース
             if stdout_data:
@@ -369,7 +365,8 @@ class ProcessManager:
     async def _communicate_sync(
         self,
         process: subprocess.Popen,
-        request_bytes: bytes
+        request_bytes: bytes,
+        timeout: int
     ) -> Tuple[bytes, bytes]:
         """
         同期的にプロセスと通信（非同期化のため別スレッドで実行）
@@ -377,14 +374,18 @@ class ProcessManager:
         Args:
             process: Popenオブジェクト
             request_bytes: リクエストバイト列
+            timeout: タイムアウト秒数
         
         Returns:
             (stdout, stderr) のタプル
         """
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(
-            None,
-            lambda: process.communicate(input=request_bytes)
+        return await asyncio.wait_for(
+            loop.run_in_executor(
+                None,
+                lambda: process.communicate(input=request_bytes)
+            ),
+            timeout=timeout
         )
     
     async def _terminate_process(self, process: subprocess.Popen):

@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 
 from src.core.config import settings
 from src.core.job_manager import job_manager
+from src.utils.datetime_utils import parse_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -51,9 +52,7 @@ class GarbageCollector:
                 metadata = job_manager.load_metadata(job_dir.name)
                 
                 if metadata:
-                    created_at = metadata.created_at
-                    if isinstance(created_at, str):
-                        created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                    created_at = parse_datetime(metadata.created_at)
                 else:
                     # メタデータがない場合はディレクトリの変更時刻を使用
                     mtime = datetime.fromtimestamp(job_dir.stat().st_mtime)

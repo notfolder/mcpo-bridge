@@ -6,7 +6,7 @@ MCPサーバー設定ファイルの管理
 """
 import json
 import os
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from pathlib import Path
 
 from pydantic_settings import BaseSettings
@@ -89,7 +89,7 @@ class MCPServerConfig:
         """
         return self._config.get(server_type)
     
-    def list_server_types(self) -> list[str]:
+    def list_server_types(self) -> List[str]:
         """
         利用可能なサーバータイプのリストを取得
         
