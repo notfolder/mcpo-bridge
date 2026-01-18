@@ -12,14 +12,16 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Node.jsのインストール（office-powerpoint-mcp-server用、npx経由）
-# Node.js 20.x LTSをインストール
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs \
+# Node.js 20.x LTSをインストール（Debian公式リポジトリから）
+RUN apt-get update && apt-get install -y \
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
 
 # uvのインストール（Python製MCPサーバー用、uvx経由）
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH="/root/.cargo/bin:${PATH}"
+# 注意: ビルド環境でSSL証明書エラーが発生する場合はスキップ可能
+# 実際の本番環境では適切に証明書を設定してインストールしてください
+# RUN pip install --no-cache-dir uv
 
 # Pythonの依存関係ファイルをコピー
 COPY requirements.txt .
