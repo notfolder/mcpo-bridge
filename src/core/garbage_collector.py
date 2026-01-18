@@ -55,8 +55,8 @@ class GarbageCollector:
                     created_at = parse_datetime(metadata.created_at)
                 else:
                     # メタデータがない場合はディレクトリの変更時刻を使用
-                    mtime = datetime.fromtimestamp(job_dir.stat().st_mtime)
-                    created_at = mtime
+                    mtime_ts = job_dir.stat().st_mtime
+                    created_at = datetime.fromtimestamp(mtime_ts, tz=timezone.utc)
                 
                 # 削除判定
                 if created_at < cutoff_time:

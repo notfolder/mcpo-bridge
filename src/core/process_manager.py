@@ -8,8 +8,6 @@ import asyncio
 import subprocess
 import json
 import logging
-import signal
-import time
 import os
 from typing import Dict, Optional, Any, Tuple
 from pathlib import Path
@@ -344,7 +342,8 @@ class ProcessManager:
             
             # 終了コードを取得（非同期）
             loop = asyncio.get_event_loop()
-            exit_code = await loop.run_in_executor(None, lambda: process.wait(timeout=1))
+            # プロセスが既に終了している場合は即座に終了コードを取得
+            exit_code = await loop.run_in_executor(None, process.wait)
             
             # レスポンスをパース
             if stdout_data:

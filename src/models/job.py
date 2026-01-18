@@ -5,7 +5,7 @@
 """
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from enum import Enum
 
 
@@ -46,19 +46,27 @@ class HealthResponse(BaseModel):
 class MCPRequest(BaseModel):
     """
     MCPリクエスト
-    JSON-RPC 2.0形式のリクエストをそのまま転送
+    最小限のJSON-RPC 2.0構造検証
     """
-    # バリデーションは最小限にし、MCPサーバーに委譲
-    pass
+    model_config = ConfigDict(extra='allow')
+    
+    jsonrpc: Optional[str] = Field(default="2.0", description="JSON-RPCバージョン")
+    id: Optional[Any] = Field(None, description="リクエストID")
+    method: Optional[str] = Field(None, description="メソッド名")
+    params: Optional[Dict[str, Any]] = Field(None, description="パラメータ")
 
 
 class MCPORequest(BaseModel):
     """
     MCPOリクエスト
-    JSON-RPC 2.0形式のリクエストをそのまま転送
+    最小限のJSON-RPC 2.0構造検証
     """
-    # バリデーションは最小限にし、MCPサーバーに委譲
-    pass
+    model_config = ConfigDict(extra='allow')
+    
+    jsonrpc: Optional[str] = Field(default="2.0", description="JSON-RPCバージョン")
+    id: Optional[Any] = Field(None, description="リクエストID")
+    method: Optional[str] = Field(None, description="メソッド名")
+    params: Optional[Dict[str, Any]] = Field(None, description="パラメータ")
 
 
 class ProcessInfo(BaseModel):
