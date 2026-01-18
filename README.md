@@ -156,7 +156,7 @@ docker-compose down
 デフォルトでは[Office-PowerPoint-MCP-Server](https://github.com/GongRzhe/Office-PowerPoint-MCP-Server)を使用する設定例が含まれています。
 
 設定例の構造:
-```
+```json
 {
   "mcpServers": {
     "powerpoint": {
@@ -165,6 +165,10 @@ docker-compose down
       "env": {
         "NODE_ENV": "production"
       }
+    },
+    "excel": {
+      "command": "uvx",
+      "args": ["excel-mcp-server", "stdio"]
     }
   }
 }
@@ -172,7 +176,8 @@ docker-compose down
 
 注意事項：
 - office-powerpoint-mcp-serverはNode.js製のため、DockerfileでNode.jsのインストールが必要です
-- npxを使用して実行するため、追加のグローバルインストールは不要です
+- excel-mcp-serverはPython製のため、Dockerfileでuvのインストールが必要です
+- npxはNode.jsパッケージ用、uvxはPythonパッケージ用です
 
 ### 環境変数
 

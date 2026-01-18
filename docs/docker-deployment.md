@@ -41,11 +41,10 @@ MCPO On-Demand BridgeをDocker化し、OpenWebUIと連携させることで、�
 
 実施内容：
 - ベースイメージから直接構築
-- Node.jsインストール（Node.js製MCPサーバー用）
+- Node.jsインストール（Node.js製MCPサーバー用、npxコマンドを使用）
+- uvインストール（Python製MCPサーバー用、uvxコマンドを使用）
 - Pythonパッケージインストール
 - アプリケーションコード配置
-
-注意：Python製MCPサーバーを使用する場合は、uvのインストールも検討してください。
 
 ### 2.3 ディレクトリ構造
 
@@ -86,8 +85,11 @@ requirements.txtで管理する主要パッケージ：
 - ca-certificates：HTTPS通信用
 - nodejs：Node.js製MCPサーバー実行用（office-powerpoint-mcp-server等、npx経由）
 - npm：Node.jsパッケージマネージャー（Node.jsに同梱）
+- uv：Python製MCPサーバー実行用（excel-mcp-server等、uvx経由）
 
-注意：Python製MCPサーバーを使用する場合は、uvのインストールも検討してください。
+**推奨事項：**
+- 様々なMCPサーバーに対応できるよう、npmとuvの両方をDockerfileにインストールすることを推奨します
+- これにより、Node.js製とPython製の両方のMCPサーバーを柔軟に利用できます
 
 ### 2.5 レイヤー最適化
 

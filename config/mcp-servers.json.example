@@ -9,6 +9,13 @@
       "env": {
         "NODE_ENV": "production"
       }
+    },
+    "excel": {
+      "command": "uvx",
+      "args": [
+        "excel-mcp-server",
+        "stdio"
+      ]
     }
   }
 }

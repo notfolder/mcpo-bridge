@@ -311,6 +311,10 @@ MCPサーバー実装は以下を満たす必要がある：
   - npxコマンドで起動：npx -y @gongrzhe/office-powerpoint-mcp-server
   - Node.js製のため、DockerfileでNode.jsインストールが必要
   - npxが自動的にパッケージをダウンロード・実行
+- Excel-MCP-Server（haris-musa/excel-mcp-server）
+  - uvxコマンドで起動：uvx excel-mcp-server stdio
+  - Python製のため、Dockerfileでuvインストールが必要
+  - uvxが自動的にPython環境を管理・実行
 - PDF生成サーバー（Python製の場合はuvxも選択肢）
 - Excel生成サーバー
 - 画像生成サーバー
@@ -895,8 +899,11 @@ requirements.txtで管理する主要パッケージ：
 - ca-certificates：HTTPS通信用
 - nodejs：Node.js製MCPサーバー実行用（office-powerpoint-mcp-server等、npx経由）
 - npm：Node.jsパッケージマネージャー（Node.jsに同梱）
+- uv：Python製MCPサーバー実行用（excel-mcp-server等、uvx経由）
 
-注意：Python製MCPサーバーを使用する場合は、uvのインストールも検討してください。
+**推奨事項：**
+- 様々なMCPサーバーに対応できるよう、npmとuvの両方をDockerfileにインストールすることを推奨します
+- これにより、Node.js製とPython製の両方のMCPサーバーを柔軟に利用できます
 
 ### 12.4 ストレージ設計
 
@@ -1083,7 +1090,9 @@ requirements.txtで管理する主要パッケージ：
   - 個別サーバーのタイムアウト設定
   - グローバル設定を上書き
 
-### 14.3 設定例（Office-PowerPoint-MCP-Server）
+### 14.3 設定例
+
+#### Office-PowerPoint-MCP-Server（Node.js製）
 
 サンプル設定ではOffice-PowerPoint-MCP-Serverを使用：
 
@@ -1096,7 +1105,45 @@ requirements.txtで管理する主要パッケージ：
 - office-powerpoint-mcp-serverはNode.js製（TypeScript）のMCPサーバーです
 - DockerfileでNode.jsのインストールが必要です
 - npx -y オプションにより、パッケージが自動的にダウンロード・実行されます
-- Python製MCPサーバーを使用する場合は、uvxコマンドも選択肢となります
+
+#### Excel-MCP-Server（Python製）
+
+excel-mcp-serverは複数のトランスポート方式をサポートしています：
+
+- サーバー名：excel
+- コマンド：uvx
+- 引数：excel-mcp-server、stdio
+- 環境変数：なし
+
+注意事項：
+- excel-mcp-serverはPython製のMCPサーバーです
+- Dockerfileでuvのインストールが必要です
+- stdio引数は標準入出力で通信するモードを指定します
+- uvxが自動的にPython環境を管理します
+
+#### 複数サーバーの同時使用
+
+Node.js製とPython製のMCPサーバーを同時に使用する場合：
+
+```json
+{
+  "mcpServers": {
+    "powerpoint": {
+      "command": "npx",
+      "args": ["-y", "@gongrzhe/office-powerpoint-mcp-server"],
+      "env": {"NODE_ENV": "production"}
+    },
+    "excel": {
+      "command": "uvx",
+      "args": ["excel-mcp-server", "stdio"]
+    }
+  }
+}
+```
+
+この場合、Dockerfileで以下の両方をインストールする必要があります：
+- Node.js（npx用）
+- uv（uvx用）
 
 ### 14.4 設定リロード
 
