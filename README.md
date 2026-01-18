@@ -10,7 +10,6 @@ MCPO On-Demand Bridgeは、OpenWebUI + MCPO環境において、PowerPoint等の
 - **リソース分離**: ユーザー間の完全な成果物分離
 - **自動ファイル削除**: ガーベジコレクションによる自動クリーンアップ
 - **スケーラビリティ**: Nginxロードバランサーとdocker-compose replicasによる水平スケール対応
-- **監視機能**: Prometheusメトリクスによる運用監視
 
 ## 特徴
 
@@ -159,15 +158,14 @@ docker-compose down
 {
   "mcpServers": {
     "powerpoint": {
-      "command": "npx",
-      "args": ["-y", "@gongrzhe/office-powerpoint-mcp-server"],
-      "env": {
-        "NODE_ENV": "production"
-      }
+      "command": "uvx",
+      "args": ["office-powerpoint-mcp-server"]
     }
   }
 }
 ```
+
+注意：Dockerfileでuvコマンドをインストールする必要があります。
 
 ### 環境変数
 
@@ -231,13 +229,6 @@ mcpo-bridge/
 - **URL**: `http://localhost/health`（Nginx経由）
 - **メソッド**: GET
 - **レスポンス**: JSON形式のステータス情報
-
-### メトリクスエンドポイント
-
-- **URL**: `http://localhost/metrics`
-- **メソッド**: GET
-- **レスポンス**: Prometheus形式
-- **説明**: 全Bridgeインスタンスのメトリクスを集約
 
 ### ファイルダウンロードエンドポイント（Nginx経由）
 
@@ -318,28 +309,6 @@ Nginxが自動的に新しいインスタンスをロードバランシング対
 # 古いジョブディレクトリを削除
 find ./data/mcpo-jobs -type d -mtime +1 -exec rm -rf {} +
 ```
-
-## 監視
-
-### Prometheusメトリクス
-
-メトリクスエンドポイント:
-```bash
-curl http://localhost/metrics
-```
-
-### 主要メトリクス
-
-- `mcpo_requests_total`: 総リクエスト数
-- `mcpo_request_duration_seconds`: リクエスト処理時間
-- `mcpo_requests_in_progress`: 処理中のリクエスト数
-- `mcpo_processes_started_total`: 起動したプロセス総数
-- `mcpo_jobs_active`: アクティブなジョブ数
-- `mcpo_disk_usage_bytes`: ディスク使用量
-
-### Grafanaダッシュボード
-
-Prometheusと連携してGrafanaダッシュボードで可視化可能。
 
 ## トラブルシューティング
 
