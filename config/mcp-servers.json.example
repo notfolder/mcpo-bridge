@@ -1,10 +1,14 @@
 {
   "mcpServers": {
     "powerpoint": {
-      "command": "uvx",
+      "command": "npx",
       "args": [
-        "office-powerpoint-mcp-server"
-      ]
+        "-y",
+        "@gongrzhe/office-powerpoint-mcp-server"
+      ],
+      "env": {
+        "NODE_ENV": "production"
+      }
     }
   }
 }

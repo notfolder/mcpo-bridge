@@ -106,7 +106,9 @@ docker-compose up -d
 http://localhost:80
 ```
 
-**注意**: 初回起動時、`./data/mcpo-jobs`と`./data/mcpo-logs`ディレクトリが自動作成されます（gitignore対象）。
+**注意**: 
+- 初回起動時、Docker Composeが自動的に`./data/mcpo-jobs`と`./data/mcpo-logs`ディレクトリを作成します（gitignore対象）
+- これらのディレクトリが存在しない場合、Dockerのバインドマウント機能により自動的にホスト側に作成されます
 
 ### 停止方法
 
@@ -158,14 +160,19 @@ docker-compose down
 {
   "mcpServers": {
     "powerpoint": {
-      "command": "uvx",
-      "args": ["office-powerpoint-mcp-server"]
+      "command": "npx",
+      "args": ["-y", "@gongrzhe/office-powerpoint-mcp-server"],
+      "env": {
+        "NODE_ENV": "production"
+      }
     }
   }
 }
 ```
 
-注意：Dockerfileでuvコマンドをインストールする必要があります。
+注意事項：
+- office-powerpoint-mcp-serverはNode.js製のため、DockerfileでNode.jsのインストールが必要です
+- npxを使用して実行するため、追加のグローバルインストールは不要です
 
 ### 環境変数
 

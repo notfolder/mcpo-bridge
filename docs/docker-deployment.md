@@ -41,9 +41,11 @@ MCPO On-Demand BridgeをDocker化し、OpenWebUIと連携させることで、�
 
 実施内容：
 - ベースイメージから直接構築
-- uvコマンドインストール
+- Node.jsインストール（Node.js製MCPサーバー用）
 - Pythonパッケージインストール
 - アプリケーションコード配置
+
+注意：Python製MCPサーバーを使用する場合は、uvのインストールも検討してください。
 
 ### 2.3 ディレクトリ構造
 
@@ -78,11 +80,14 @@ requirements.txtで管理する主要パッケージ：
 
 #### システムパッケージ
 
-実行時に必要な最小限のパッケージ：
+実行時に必要なパッケージ：
 
-- curl：ヘルスチェック用、uvインストール用
+- curl：ヘルスチェック用、インストールスクリプト実行用
 - ca-certificates：HTTPS通信用
-- uv：uvxコマンドでMCPサーバーを起動するために必要
+- nodejs：Node.js製MCPサーバー実行用（office-powerpoint-mcp-server等、npx経由）
+- npm：Node.jsパッケージマネージャー（Node.jsに同梱）
+
+注意：Python製MCPサーバーを使用する場合は、uvのインストールも検討してください。
 
 ### 2.5 レイヤー最適化
 
@@ -153,9 +158,9 @@ requirements.txtで管理する主要パッケージ：
 - ヘルスチェック：有効
 - 再起動ポリシー：unless-stopped
 
-### 3.2 ボリューム設計詳細
+### 3.2 ストレージ設計詳細
 
-#### openwebui-dataボリューム
+#### openwebui-data（名前付きボリューム）
 
 用途：OpenWebUIの永続データ保存
 
@@ -166,7 +171,7 @@ requirements.txtで管理する主要パッケージ：
 - その他アプリケーションデータ
 
 管理：
-- Dockerが自動管理
+- Dockerが自動管理する名前付きボリューム
 - バックアップ推奨
 
 #### mcpo-jobsボリューム
@@ -245,9 +250,6 @@ requirements.txtで管理する主要パッケージ：
 オプション変数：
 - MCPO_JOBS_DIR：ジョブディレクトリルートパス
   - デフォルト：/tmp/mcpo-jobs
-  
-- MCPO_FILE_EXPIRY：ファイル有効期限（秒）
-  - デフォルト：3600（1時間）
   
 - MCPO_MAX_CONCURRENT：最大同時実行プロセス数
   - デフォルト：CPUコア数×4
