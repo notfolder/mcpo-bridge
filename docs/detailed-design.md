@@ -42,10 +42,9 @@
 | FR-2 | リクエスト毎プロセス起動 | 各リクエストに対して独立したMCPサーバープロセスを起動する |
 | FR-3 | 単一リクエスト処理後終了 | MCPサーバーは1つのリクエストを処理した後、即座に終了する |
 | FR-4 | ファイルダウンロード機能 | 生成されたファイルをHTTPS経由でダウンロード可能にする |
-| FR-5 | ダウンロードURL有効期限 | ダウンロードURLに有効期限を設定し、期限後はアクセス不可とする |
-| FR-6 | 自動ファイル削除 | 不要となったファイルを自動的に削除する |
-| FR-7 | 複数MCPサーバー種類対応 | 異なる種類のMCPサーバーを同時にサポートする |
-| FR-8 | メトリクス収集 | Prometheus形式でメトリクスを公開する |
+| FR-5 | 自動ファイル削除 | 不要となったファイルを自動的に削除する |
+| FR-6 | 複数MCPサーバー種類対応 | 異なる種類のMCPサーバーを同時にサポートする |
+| FR-7 | メトリクス収集 | Prometheus形式でメトリクスを公開する |
 
 ### 2.2 非機能要件
 
@@ -76,7 +75,7 @@ Nginx (Load Balancer & File Server)
    |                      MCPO Bridge Instance 2
    |                      MCPO Bridge Instance N
    |
-   +-- Static Files ----> Shared Volume (/tmp/mcpo-jobs)
+   +-- Static Files ----> Bind Mount (./data/mcpo-jobs)
    
    
 OpenWebUI (Docker Container)
@@ -89,14 +88,14 @@ Nginx Load Balancer
 MCPO On-Demand Bridge (Docker Container x N)
    |
    | per-request subprocess
-   |   - 作業ディレクトリ作成 (/tmp/mcpo-jobs/job-uuid)
+   |   - 作業ディレクトリ作成 (./data/mcpo-jobs/job-uuid)
    |   - MCP Server プロセス起動
    v
 Ephemeral MCP Server Process
    |
    | ファイル生成 (pptx, pdf, etc.)
    v
-Temporary File Store (Shared Volume)
+Temporary File Store (Bind Mount)
    |
    | HTTPS download via Nginx
    v
@@ -106,18 +105,18 @@ User Browser
 #### Docker構成
 
 - Nginxコンテナ：フロントエンドプロキシ、ロードバランサー、静的ファイル配信
-- OpenWebUIコンテナ：ユーザーインターフェース
-- MCPO Bridgeコンテナ：複数インスタンス（replicasで制御）
+- OpenWebUIコンテナ：ユーザーインターフェース（Volumeマウント）
+- MCPO Bridgeコンテナ：複数インスタンス（replicasで制御、バインドマウント使用）
 - すべてのコンテナが同一Docker Composeで管理される
 - コンテナ間通信はDockerネットワーク経由
-- 一時ファイルは共有Docker Volumeで永続化
+- 一時ファイルとログはローカルディレクトリにバインドマウント
 
 ### 3.2 デプロイメント構成
 
 #### 開発環境
 - Docker Compose による単一ホスト構成
 - Nginx、OpenWebUI、MCPO Bridge（複数レプリカ）が同一ネットワーク上で動作
-- ローカルボリュームを使用した一時ファイル管理
+- バインドマウントによる一時ファイル管理
 
 #### 本番環境（想定）
 - 同様のDocker Compose構成
@@ -133,30 +132,29 @@ User Browser
 Nginxコンポーネントは以下の責務を持つ：
 
 - MCPOエンドポイントへのロードバランシング
-- 静的ファイル配信（生成されたファイルのダウンロード）
+- 静的ファイル配信（生成されたファイルのダウンロード、有効期限チェックなし）
 - リバースプロキシ機能
 - アクセスログ記録
 - HTTPSターミネーション（本番環境）
 
 #### 4.1.2 エンドポイント設計
 
+##### MCP/MCPOプロキシエンドポイント
+
+- MCPOエンドポイント：/mcpo/{server-type}
+  - 例：/mcpo/powerpoint
+  - 処理：対応するMCPサーバータイプのBridgeインスタンスへプロキシ
+  
+- MCPエンドポイント：/mcp/{server-type}
+  - 例：/mcp/powerpoint
+  - 処理：MCPプロトコルでの通信をプロキシ
+
 ##### ファイルダウンロードエンドポイント
 
 - パス：/files/{job-uuid}/{filename}
 - メソッド：GET
-- 処理：共有ボリュームから直接ファイルを配信
+- 処理：バインドマウントから直接ファイルを配信（シンプルな配信、有効期限チェックなし）
 - キャッシュ：無効化（Cache-Control: no-cache）
-- 有効期限チェック：metadata.jsonを参照
-
-##### MCP/MCPOプロキシエンドポイント
-
-- MCPOエンドポイント：/mcpo/{server-type}
-  - 例：/mcpo/pptx-generator、/mcpo/pdf-generator
-  - 処理：対応するMCPサーバータイプのBridgeインスタンスへプロキシ
-  
-- MCPエンドポイント：/mcp/{server-type}
-  - 例：/mcp/pptx-generator、/mcp/pdf-generator
-  - 処理：MCPプロトコルでの通信をプロキシ
 
 ##### メトリクスエンドポイント
 
@@ -173,9 +171,9 @@ Nginxコンポーネントは以下の責務を持つ：
 
 #### 4.1.4 静的ファイル配信設定
 
-- ドキュメントルート：共有ボリューム /tmp/mcpo-jobs
+- ドキュメントルート：バインドマウント ./data/mcpo-jobs
 - ディレクトリリスティング：無効
-- 有効期限チェック：metadata.jsonのexpires_atを参照し、期限切れは404返却
+- 有効期限チェック：なし（シンプルな配信）
 - MIMEタイプ：自動判定
 
 ### 4.2 MCPO On-Demand Bridge
@@ -192,7 +190,7 @@ Bridgeコンポーネントは以下の責務を持つ：
 - プロセスとの標準入出力通信
 - 処理完了まで同期ブロック
 - MCPレスポンスをそのまま返却
-- ダウンロードURL生成
+- メタデータ更新
 - メトリクス収集
 
 #### 4.2.2 技術スタック
@@ -219,7 +217,7 @@ Bridgeコンポーネントは以下の責務を持つ：
 ##### ジョブ管理モジュール
 
 - UUID v4 によるジョブID発行
-- ジョブメタデータの管理（作成時刻、有効期限、状態）
+- ジョブメタデータの管理（作成時刻、状態）
 - ジョブディレクトリの作成
 - ジョブ状態の追跡
 
@@ -234,7 +232,7 @@ Bridgeコンポーネントは以下の責務を持つ：
 
 ##### ガーベジコレクションモジュール
 
-- 定期的な期限切れファイル検査
+- 定期的な古いファイル検査
 - ディレクトリ削除処理
 - 起動時の孤児ディレクトリクリーンアップ
 - 安全な削除処理（パス検証）
@@ -274,19 +272,11 @@ BridgeはClaude等で使用されるMCPサーバー設定JSON形式を使用す�
 - args：コマンドライン引数の配列
 - env：環境変数のキーバリューマップ（オプショナル）
 
-##### 作業ディレクトリの指定方法
-
-MCPサーバーに作業ディレクトリを渡すには以下の方法を使用：
-
-- args配列内に特殊トークン「__WORKDIR__」を記述
-- Bridge実行時に実際のジョブディレクトリパスに置換される
-- 環境変数による指定も可能（MCPO_WORKDIR等）
-
 ##### 設定ファイルの配置
 
 - コンテナ内パス：/app/config/mcp-servers.json
 - ソースコード配下のconfigディレクトリに配置
-- サンプル設定：config/mcp-servers.json.example
+- サンプル設定：config/mcp-servers.json.example（Office-PowerPoint-MCP-Serverを使用）
 - 設定変更時はコンテナ再起動が必要
 
 #### 4.2.5 並行実行制御
@@ -325,7 +315,6 @@ Ephemeral（短命）MCPサーバーは以下の特性を持つ：
 MCPサーバー実装は以下を満たす必要がある：
 
 - MCP標準仕様に準拠したJSON-RPC通信
-- ファイル出力先を引数で指定可能な設計
 - ステートレスな処理（前回実行結果に依存しない）
 - 適切なエラーハンドリングと終了コード
 - タイムアウト内での処理完了
@@ -334,7 +323,7 @@ MCPサーバー実装は以下を満たす必要がある：
 
 以下のようなMCPサーバーが利用可能：
 
-- PowerPoint生成サーバー（pptx-mcp-server 等）
+- Office-PowerPoint-MCP-Server（GongRzhe/Office-PowerPoint-MCP-Server）
 - PDF生成サーバー
 - Excel生成サーバー
 - 画像生成サーバー
@@ -347,7 +336,7 @@ MCPサーバー実装は以下を満たす必要がある：
 一時ファイルは以下の構造で管理される：
 
 ```
-/tmp/mcpo-jobs/
+./data/mcpo-jobs/
   └── {job-uuid}/
        ├── request.json      # 受信したMCPリクエスト
        ├── response.json     # MCPサーバーからのレスポンス
@@ -362,8 +351,8 @@ MCPサーバー実装は以下を満たす必要がある：
 
 - 作成：リクエスト受信時に作成
 - 利用：MCPサーバープロセスによるファイル生成
-- 保持：処理完了後も一定期間保持（デフォルト1時間）
-- 削除：有効期限切れ後、ガーベジコレクタにより削除
+- 保持：処理完了後も保持
+- 削除：ガーベジコレクタにより定期的に削除
 
 #### 4.4.3 メタデータ管理
 
@@ -372,15 +361,10 @@ metadata.jsonには以下の情報を記録：
 - job_id：ジョブの一意識別子
 - server_name：使用したMCPサーバー名
 - created_at：作成日時（ISO 8601形式）
-- expires_at：有効期限（ISO 8601形式）
 - status：ジョブ状態（processing, completed, failed）
 - request：受信したMCPリクエスト
 - response：MCPサーバーレスポンス（処理完了後）
 - error：エラーメッセージ（失敗時のみ）
-- output_files：生成ファイル情報配列
-  - filename：ファイル名
-  - size：サイズ（バイト）
-  - mime_type：MIMEタイプ
 
 #### 4.4.4 セキュリティ考慮
 
@@ -389,15 +373,14 @@ metadata.jsonには以下の情報を記録：
 - job-uuidは推測困難なUUID v4を使用
 - シンボリックリンク攻撃対策（パス正規化チェック）
 
-#### 4.4.5 Docker Volume設計
+#### 4.4.5 ストレージ設計
 
-Docker環境では以下のVolume設計を採用：
+Docker環境では以下のストレージ設計を採用：
 
-- 名前付きVolume「mcpo-jobs」を使用
+- バインドマウント：./data/mcpo-jobs
 - コンテナ内マウントポイント：/tmp/mcpo-jobs
 - 全Bridgeインスタンスで共有
-- ホスト側パスは Docker が自動管理
-- 開発環境ではバインドマウントも選択可能
+- .gitignoreで除外
 
 ## 5. 処理フロー設計
 
@@ -409,20 +392,18 @@ Docker環境では以下のVolume設計を採用：
 2. NginxがリクエストをBridgeインスタンスにロードバランス
 3. Bridge でリクエスト受信（パススルー）
 4. UUID によるジョブID発行
-5. ジョブディレクトリ作成（/tmp/mcpo-jobs/{job-uuid}/）
+5. ジョブディレクトリ作成（./data/mcpo-jobs/{job-uuid}/）
 6. メタデータファイル作成
 7. リクエストJSONをファイル保存
 8. MCPサーバー設定から対象サーバー選択
-9. コマンドライン引数組み立て（__WORKDIR__置換）
+9. コマンドライン引数組み立て
 10. MCPサーバープロセス起動
 11. 標準入力にリクエスト送信
 12. 標準出力からレスポンス読み取り（同期ブロック）
 13. プロセス終了待機
-14. 生成ファイル確認
-15. ダウンロードURL生成（Nginx経由のURL）
-16. メタデータ更新（status=completed）
-17. MCPレスポンスをそのまま返却
-18. メトリクス更新
+14. メタデータ更新（status=completed）
+15. MCPレスポンスをそのまま返却
+16. メトリクス更新
 
 #### リクエスト処理の詳細フロー
 
@@ -437,14 +418,13 @@ Docker環境では以下のVolume設計を採用：
 
 - UUID v4生成
 - 現在時刻取得
-- 有効期限計算（現在時刻 + 設定値）
 - ジョブディレクトリ作成
 - メタデータJSON作成
 
 ##### Phase 3: プロセス実行
 
 - MCPサーバー設定読み込み
-- コマンド構築（パス置換処理）
+- コマンド構築
 - 環境変数準備
 - subprocess.Popen でプロセス起動
 - 標準入力へリクエストJSON書き込み
@@ -454,11 +434,8 @@ Docker環境では以下のVolume設計を採用：
 
 ##### Phase 4: レスポンス処理
 
-- 生成ファイル検索（ディレクトリスキャン）
-- ファイル情報取得（サイズ、MIME type）
-- ダウンロードURL組み立て（Nginx経由）
-- MCPレスポンスをそのまま返却（変更なし）
 - メタデータ更新
+- MCPレスポンスをそのまま返却（変更なし）
 - HTTPレスポンス返却
 
 ### 5.2 異常系処理フロー
@@ -483,14 +460,12 @@ Docker環境では以下のVolume設計を採用：
 5. エラーメッセージをそのまま返却
 6. メトリクス更新（エラーカウント）
 
-#### ファイル生成失敗時
+#### MCPサーバーがエラーを返さない場合
 
-1. プロセスは正常終了したがファイルが存在しない
-2. ディレクトリ内容確認
-3. MCPレスポンス内容確認
-4. エラーログ記録
-5. ジョブステータスを「failed」に更新
-6. MCPレスポンスをそのまま返却
+1. MCPサーバーが正常終了（exit code 0）
+2. ファイルが存在しなくてもエラーとしない
+3. MCPレスポンスをそのまま返却
+4. ジョブステータスを「completed」に更新
 
 #### 並行実行制限到達時
 
@@ -516,20 +491,11 @@ Docker環境では以下のVolume設計を採用：
 
 1. ダウンロードURLにアクセス（GET /files/{job-uuid}/{filename}）
 2. job-uuid抽出
-3. ジョブディレクトリ存在確認
-4. metadata.json読み込み（Nginxスクリプトまたはヘルパー）
-5. 有効期限チェック
-6. ファイルパス構築
-7. ファイル存在確認
-8. MIME type判定
-9. Content-Dispositionヘッダー設定
-10. ファイルストリーミング送信
-
-#### 有効期限切れ時
-
-1. expires_at と現在時刻を比較
-2. 期限切れの場合404 Not Found返却
-3. 後続のGC処理でファイル削除
+3. ファイルパス構築
+4. ファイル存在確認
+5. MIME type判定
+6. Content-Dispositionヘッダー設定
+7. ファイルストリーミング送信
 
 ## 6. API仕様設計
 
@@ -541,9 +507,8 @@ Docker環境では以下のVolume設計を採用：
 
 - パス：/mcpo/{server-type}
 - 例：
-  - /mcpo/pptx-generator
+  - /mcpo/powerpoint
   - /mcpo/pdf-generator
-  - /mcpo/excel-generator
 - メソッド：POST
 - Content-Type：application/json
 - プロトコル：JSON-RPC 2.0
@@ -554,9 +519,8 @@ Docker環境では以下のVolume設計を採用：
 
 - パス：/mcp/{server-type}
 - 例：
-  - /mcp/pptx-generator
+  - /mcp/powerpoint
   - /mcp/pdf-generator  
-  - /mcp/excel-generator
 - メソッド：POST
 - Content-Type：application/json
 - プロトコル：MCP標準プロトコル
@@ -663,59 +627,18 @@ MCPサーバーからのレスポンスをそのまま返却：
 - mcpo_disk_usage_bytes：ディスク使用量
 - mcpo_files_count：管理中のファイル数
 
-## 7. データ設計
+## 7. 環境変数設計
 
-### 7.1 メタデータ構造
-
-#### metadata.json スキーマ
-
-各ジョブディレクトリに配置されるメタデータファイルの構造：
-
-- job_id（string）：ジョブ一意識別子
-- server_name（string）：使用したMCPサーバー名
-- created_at（string）：作成日時（ISO 8601）
-- expires_at（string）：有効期限（ISO 8601）
-- status（string）：ジョブ状態（processing / completed / failed）
-- request（object）：受信したMCPリクエスト
-- response（object）：MCPサーバーレスポンス（処理完了後）
-- error（string）：エラーメッセージ（失敗時のみ）
-- output_files（array）：生成ファイル情報配列
-  - filename（string）：ファイル名
-  - size（number）：サイズ（バイト）
-  - mime_type（string）：MIMEタイプ
-
-### 7.2 設定ファイル構造
-
-#### mcp-servers.json スキーマ
-
-MCPサーバー設定ファイルの構造：
-
-- mcpServers（object）：サーバー定義マップ
-  - {server-name}（object）：個別サーバー設定
-    - command（string）：実行コマンドパス
-    - args（array of string）：コマンドライン引数
-    - env（object）：環境変数マップ（オプショナル）
-
-#### 特殊トークン
-
-args配列内で使用可能な特殊トークン：
-
-- __WORKDIR__：ジョブ作業ディレクトリパスに置換される
-- __JOB_ID__：ジョブUUIDに置換される
-
-### 7.3 環境変数設計
-
-#### Bridge設定用環境変数
+### 7.1 Bridge設定用環境変数
 
 - MCPO_CONFIG_FILE：MCP設定ファイルパス（デフォルト：/app/config/mcp-servers.json）
 - MCPO_JOBS_DIR：ジョブディレクトリルート（デフォルト：/tmp/mcpo-jobs）
 - MCPO_BASE_URL：ダウンロードURL用ベースURL（デフォルト：http://nginx）
-- MCPO_FILE_EXPIRY：ファイル有効期限（秒）（デフォルト：3600）
 - MCPO_MAX_CONCURRENT：最大同時実行数（デフォルト：CPU数×4）
 - MCPO_TIMEOUT：プロセスタイムアウト（秒）（デフォルト：300）
 - MCPO_LOG_LEVEL：ログレベル（デフォルト：INFO）
 
-#### MCPサーバー実行時環境変数
+### 7.2 MCPサーバー実行時環境変数
 
 MCPサーバープロセスに渡される環境変数：
 
@@ -731,8 +654,6 @@ MCPサーバープロセスに渡される環境変数：
 
 - 入力検証はすべてMCPサーバーに委譲
 - Dockerコンテナはroot権限で実行
-- ファイルシステムのパーミッション制御は最小限
-- リソース制限は設定しない
 - シンプルな設計を優先
 
 ### 8.2 実施するセキュリティ対策
@@ -782,7 +703,7 @@ MCPサーバープロセスに渡される環境変数：
 
 #### ストレージ拡張
 
-- ボリュームサイズ拡張
+- ディレクトリサイズ拡張
 - 古いファイルの積極的削除
 - ストレージ使用量監視
 
@@ -809,7 +730,7 @@ MCPサーバープロセスに渡される環境変数：
 
 #### 共有ストレージ
 
-- 名前付きDocker Volumeで全インスタンス共有
+- バインドマウントで全インスタンス共有
 - 全インスタンスが同一ストレージアクセス
 - ダウンロードリクエストはどのインスタンスでも処理可能（Nginx経由）
 
@@ -834,11 +755,10 @@ MCPサーバープロセスに渡される環境変数：
 
 ### 10.1 削除対象の判定
 
-#### 期限切れジョブ
+#### 古いジョブ
 
-- metadata.jsonのexpires_at参照
-- 現在時刻と比較
-- 期限切れジョブを削除対象としてマーク
+- 作成日時から一定時間経過したジョブ（デフォルト24時間）
+- metadata.jsonのcreated_at参照
 
 #### 孤児ディレクトリ
 
@@ -850,7 +770,7 @@ MCPサーバープロセスに渡される環境変数：
 
 #### 定期実行（cron方式）
 
-- 実行間隔：5分毎（デフォルト）
+- 実行間隔：1時間毎（デフォルト）
 - バックグラウンドタスクとして実行
 - asyncioスケジューラー利用
 
@@ -864,9 +784,9 @@ MCPサーバープロセスに渡される環境変数：
 
 #### Phase 1: スキャン
 
-1. /tmp/mcpo-jobs ディレクトリ走査
+1. ./data/mcpo-jobs ディレクトリ走査
 2. 各ジョブディレクトリのmetadata.json読み込み
-3. expires_at確認
+3. created_at確認
 4. 削除対象リスト作成
 
 #### Phase 2: 削除実行
@@ -880,13 +800,12 @@ MCPサーバープロセスに渡される環境変数：
 
 1. 削除失敗時はログ記録
 2. 次回GC実行時にリトライ
-3. 連続失敗時はアラート（将来実装）
 
 ### 10.4 安全性担保
 
 #### パス検証
 
-- 削除対象が/tmp/mcpo-jobs配下か厳密確認
+- 削除対象が./data/mcpo-jobs配下か厳密確認
 - 親ディレクトリ削除防止
 - シンボリックリンク追跡禁止
 
@@ -941,7 +860,7 @@ MCPサーバーからのエラーレスポンスをそのまま返却：
 #### ログ出力先
 
 - 標準出力（Dockerログに集約）
-- ログボリュームに永続化（必須）
+- ログディレクトリに永続化（./data/mcpo-logs、バインドマウント）
 - 本番環境では外部ログ集約サービス連携
 
 #### ログフォーマット
@@ -976,12 +895,7 @@ MCPサーバーからのエラーレスポンスをそのまま返却：
 - 公式Pythonイメージ使用（python:3.11）
 - セキュリティアップデート適用済みイメージ選定
 - root権限での実行
-
-#### マルチステージビルド
-
-- ビルドステージ：依存関係インストール
-- 実行ステージ：最小限のファイルのみコピー
-- イメージサイズ削減
+- シンプルな単一ステージビルド
 
 #### レイヤー最適化
 
@@ -1006,9 +920,9 @@ MCPサーバーからのエラーレスポンスをそのまま返却：
       ├── models/             # データモデル
       └── utils/              # ユーティリティ
 
-/tmp/mcpo-jobs/             # 一時ファイル作業領域（Volume）
+/tmp/mcpo-jobs/             # 一時ファイル作業領域（バインドマウント）
 
-/var/log/mcpo/              # ログディレクトリ（Volume）
+/var/log/mcpo/              # ログディレクトリ（バインドマウント）
 ```
 
 ### 12.3 依存パッケージ管理
@@ -1031,21 +945,22 @@ requirements.txtで管理する主要パッケージ：
 - curl：ヘルスチェック用
 - ca-certificates：HTTPS通信用
 
-### 12.4 ボリューム設計
+### 12.4 ストレージ設計
 
-#### 一時ファイルボリューム
+#### 一時ファイルストレージ
 
-- ボリューム名：mcpo-jobs
+- バインドマウント：./data/mcpo-jobs
 - マウントポイント：/tmp/mcpo-jobs
-- 永続化ストレージ
 - 全Bridgeインスタンスで共有
+- .gitignoreで除外
 
-#### ログボリューム（必須）
+#### ログストレージ
 
-- ボリューム名：mcpo-logs
+- バインドマウント：./data/mcpo-logs
 - マウントポイント：/var/log/mcpo
 - 永続化ログ保存
 - 全Bridgeインスタンスで共有
+- .gitignoreで除外
 
 ### 12.5 ネットワーク設計
 
@@ -1070,7 +985,6 @@ requirements.txtで管理する主要パッケージ：
 
 #### オプション環境変数
 
-- MCPO_FILE_EXPIRY：ファイル有効期限
 - MCPO_MAX_CONCURRENT：最大同時実行数
 - MCPO_TIMEOUT：タイムアウト時間
 - MCPO_LOG_LEVEL：ログレベル
@@ -1100,7 +1014,7 @@ requirements.txtで管理する主要パッケージ：
 - サービス名：nginx
 - イメージ：公式nginxイメージ
 - ポート：ホスト80 → コンテナ80
-- ボリューム：nginx設定、mcpo-jobs（読み取り専用）
+- バインドマウント：nginx設定、./data/mcpo-jobs（読み取り専用）
 - ネットワーク：mcpo-network
 - 設定：ロードバランシング、静的ファイル配信
 
@@ -1118,18 +1032,22 @@ requirements.txtで管理する主要パッケージ：
 - サービス名：mcpo-bridge
 - ビルド：ローカルDockerfile使用
 - ポート：内部8080（Nginx経由のみ）
-- ボリューム：mcpo-jobs、mcpo-logs
+- バインドマウント：./data/mcpo-jobs、./data/mcpo-logs
 - ネットワーク：mcpo-network
 - ヘルスチェック：有効
 - デプロイ：replicas設定で複数インスタンス
 
-### 13.2 ボリューム定義
+### 13.2 ストレージ定義
 
-#### 名前付きボリューム
+#### OpenWebUIデータ（ボリューム）
 
-- openwebui-data：OpenWebUIデータ永続化
-- mcpo-jobs：Bridge一時ファイル（全インスタンス共有）
-- mcpo-logs：Bridgeログファイル（必須、全インスタンス共有）
+- ボリューム名：openwebui-data
+- 用途：OpenWebUIデータ永続化
+
+#### MCPO Bridge データ（バインドマウント）
+
+- ./data/mcpo-jobs：一時ファイル（.gitignore）
+- ./data/mcpo-logs：ログファイル（.gitignore）
 
 ### 13.3 ネットワーク定義
 
@@ -1205,7 +1123,6 @@ requirements.txtで管理する主要パッケージ：
   - PATH環境変数で解決可能なコマンド名
 - args：コマンドライン引数配列（必須、空配列可）
   - 文字列の配列
-  - 特殊トークン置換対応
 - env：環境変数マップ（オプション）
   - キーバリューペアのオブジェクト
   - サーバー実行時に設定
@@ -1213,25 +1130,14 @@ requirements.txtで管理する主要パッケージ：
   - 個別サーバーのタイムアウト設定
   - グローバル設定を上書き
 
-### 14.3 特殊トークン仕様
+### 14.3 設定例（Office-PowerPoint-MCP-Server）
 
-#### __WORKDIR__
+サンプル設定ではOffice-PowerPoint-MCP-Serverを使用：
 
-- 用途：作業ディレクトリパス指定
-- 置換内容：/tmp/mcpo-jobs/{job-uuid}
-- 使用例：args配列内に"--output"、"__WORKDIR__"と記述
-
-#### __JOB_ID__
-
-- 用途：ジョブID指定
-- 置換内容：job-uuid文字列
-- 使用例：args配列内に"--job-id"、"__JOB_ID__"と記述
-
-#### 置換タイミング
-
-- MCPサーバープロセス起動直前
-- args配列を走査して全トークンを置換
-- 環境変数envには自動設定（MCPO_WORKDIR等）
+- サーバー名：powerpoint
+- コマンド：npx
+- 引数：-y、@gongrzhe/office-powerpoint-mcp-server
+- 環境変数：NODE_ENV=production
 
 ### 14.4 設定リロード
 
@@ -1260,13 +1166,14 @@ requirements.txtで管理する主要パッケージ：
 #### ロケーション設定
 
 - パス：/files/
-- ルート：共有ボリューム /tmp/mcpo-jobs
+- ルート：バインドマウント ./data/mcpo-jobs
 - ディレクトリリスティング：無効
 
-#### 有効期限チェック
+#### シンプルな配信
 
-- Nginxスクリプトまたは外部ヘルパーでmetadata.json参照
-- expires_at超過時は404返却
+- 有効期限チェックなし
+- シンプルなファイル配信
+- 404エラーは存在しないファイルのみ
 
 ### 15.3 プロキシ設定
 
@@ -1322,7 +1229,7 @@ requirements.txtで管理する主要パッケージ：
 
 - CPU使用率
 - メモリ使用量
-- ディスク使用量（ボリューム）
+- ディスク使用量（バインドマウント）
 - ネットワークトラフィック
 
 #### アプリケーション監視
@@ -1338,21 +1245,7 @@ requirements.txtで管理する主要パッケージ：
 - Grafanaダッシュボードで可視化
 - アラート設定
 
-### 16.3 バックアップ
-
-#### 対象データ
-
-- config/mcp-servers.json 設定ファイル
-- docker-compose.yml
-- Nginx設定ファイル
-
-#### バックアップ頻度
-
-- 設定ファイル：変更時
-- ログ：定期的にアーカイブ
-- 一時ファイル：不要（自動削除前提）
-
-### 16.4 障害対応
+### 16.3 障害対応
 
 #### コンテナ再起動
 
@@ -1362,7 +1255,7 @@ requirements.txtで管理する主要パッケージ：
 #### ログ確認
 
 - docker-compose logs mcpo-bridge
-- ログボリュームから直接確認
+- バインドマウントから直接確認（./data/mcpo-logs）
 - エラー原因特定
 
 #### ロールバック
@@ -1370,7 +1263,7 @@ requirements.txtで管理する主要パッケージ：
 - 前バージョンイメージへの切り戻し
 - docker-compose down → イメージタグ変更 → up
 
-### 16.5 スケールアウト
+### 16.4 スケールアウト
 
 #### 手動スケール
 
@@ -1386,7 +1279,6 @@ requirements.txtで管理する主要パッケージ：
 
 - ジョブ管理関数
 - メタデータ生成関数
-- トークン置換関数
 
 #### テストフレームワーク
 
@@ -1434,10 +1326,12 @@ requirements.txtで管理する主要パッケージ：
 - 入力検証のMCPサーバーへの委譲
 - Docker Compose replicasによる簡単なスケールアウト
 - Prometheusメトリクスによる運用監視
+- バインドマウントによるシンプルなストレージ管理
+- Office-PowerPoint-MCP-Serverを例としたMCP設定
 - シンプルで保守しやすい設計
 
 本設計に基づき実装を進めることで、安全でスケーラブルなファイル生成系MCPサーバー基盤を構築できる。
 
 ---
 
-**MCPO On-Demand Bridge 詳細設計書 v2.0**
+**MCPO On-Demand Bridge 詳細設計書 v3.0**

@@ -11,7 +11,7 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
-      - mcpo-jobs:/tmp/mcpo-jobs:ro
+      - ./data/mcpo-jobs:/tmp/mcpo-jobs:ro
     networks:
       - mcpo-network
     depends_on:
@@ -40,8 +40,8 @@ services:
       context: .
       dockerfile: Dockerfile
     volumes:
-      - mcpo-jobs:/tmp/mcpo-jobs
-      - mcpo-logs:/var/log/mcpo
+      - ./data/mcpo-jobs:/tmp/mcpo-jobs
+      - ./data/mcpo-logs:/var/log/mcpo
     environment:
       - MCPO_BASE_URL=http://nginx
       - MCPO_CONFIG_FILE=/app/config/mcp-servers.json
@@ -66,10 +66,6 @@ services:
 
 volumes:
   openwebui-data:
-    driver: local
-  mcpo-jobs:
-    driver: local
-  mcpo-logs:
     driver: local
 
 networks:

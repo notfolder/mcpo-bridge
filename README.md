@@ -8,7 +8,7 @@ MCPO On-Demand Bridgeは、OpenWebUI + MCPO環境において、PowerPoint等の
 
 - **マルチユーザー対応**: 数百ユーザーの同時利用
 - **リソース分離**: ユーザー間の完全な成果物分離
-- **一時ファイルの確実な削除**: ガーベジコレクションによる自動クリーンアップ
+- **自動ファイル削除**: ガーベジコレクションによる自動クリーンアップ
 - **スケーラビリティ**: Nginxロードバランサーとdocker-compose replicasによる水平スケール対応
 - **監視機能**: Prometheusメトリクスによる運用監視
 
@@ -23,7 +23,6 @@ MCPO On-Demand Bridgeは、OpenWebUI + MCPO環境において、PowerPoint等の
 ### セキュアなファイル管理
 
 - **ジョブ単位の分離**: UUID v4による一意なジョブディレクトリ
-- **有効期限付きURL**: ダウンロードURLは自動的に期限切れ
 - **自動削除**: ガーベジコレクションによる定期的なファイル削除
 
 ### Nginx統合アーキテクチャ
@@ -37,7 +36,7 @@ MCPO On-Demand Bridgeは、OpenWebUI + MCPO環境において、PowerPoint等の
 - **OpenWebUIと統合**: docker-compose.ymlで同時起動
 - **簡単デプロイ**: docker-compose up -dで即座に利用開始
 - **簡単スケール**: replicas設定で複数インスタンス起動
-- **環境の一貫性**: 開発環境と本番環境で同一構成
+- **バインドマウント**: ローカルディレクトリを直接マウント（gitignore対象）
 
 ## アーキテクチャ
 
@@ -52,7 +51,7 @@ Nginx (Load Balancer & File Server)
    |                      MCPO Bridge Instance 2
    |                      MCPO Bridge Instance N
    |
-   +-- Static Files ----> Shared Volume (/tmp/mcpo-jobs)
+   +-- Static Files ----> Bind Mount (./data/mcpo-jobs)
 
 
 OpenWebUI (Docker Container)
@@ -70,7 +69,7 @@ Ephemeral MCP Server Process
    |
    | ファイル生成 (pptx, pdf, etc.)
    v
-Temporary File Store (Shared Volume)
+Temporary File Store (Bind Mount ./data/)
    |
    | HTTPS download via Nginx
    v
@@ -108,6 +107,8 @@ docker-compose up -d
 http://localhost:80
 ```
 
+**注意**: 初回起動時、`./data/mcpo-jobs`と`./data/mcpo-logs`ディレクトリが自動作成されます（gitignore対象）。
+
 ### 停止方法
 
 ```bash
@@ -131,7 +132,7 @@ docker-compose down
 4. コンポーネント詳細設計
 5. 処理フロー設計
 6. API仕様設計（MCP/MCPO分離、複数サーバータイプ対応）
-7. データ設計
+7. 環境変数設計
 8. セキュリティ設計
 9. スケーラビリティ設計（docker-compose replicas）
 10. ガーベジコレクション設計
@@ -143,18 +144,6 @@ docker-compose down
 16. 運用設計
 17. テスト設計
 
-#### Dockerデプロイメント設計の内容
-
-1. Docker化の概要
-2. Dockerfile設計
-3. Docker Compose設計
-4. Nginx統合設計
-5. 開発環境と本番環境の差異
-6. 運用コマンド
-7. セキュリティ考慮事項
-8. モニタリングと監視
-9. スケーリング戦略
-
 ## 設定
 
 ### MCP設定ファイル
@@ -163,24 +152,22 @@ docker-compose down
 
 設定ファイルはソースコード配下のconfigディレクトリに配置され、サンプルが`config/mcp-servers.json.example`として用意されています。
 
+デフォルトでは[Office-PowerPoint-MCP-Server](https://github.com/GongRzhe/Office-PowerPoint-MCP-Server)を使用する設定例が含まれています。
+
 設定例の構造:
 ```
 {
   "mcpServers": {
-    "server-name": {
-      "command": "実行コマンド",
-      "args": ["引数1", "引数2", "__WORKDIR__"],
+    "powerpoint": {
+      "command": "npx",
+      "args": ["-y", "@gongrzhe/office-powerpoint-mcp-server"],
       "env": {
-        "環境変数名": "値"
+        "NODE_ENV": "production"
       }
     }
   }
 }
 ```
-
-特殊トークン:
-- `__WORKDIR__`: ジョブ作業ディレクトリパスに置換
-- `__JOB_ID__`: ジョブUUIDに置換
 
 ### 環境変数
 
@@ -191,10 +178,33 @@ docker-compose.ymlで以下の環境変数を設定できます:
 | MCPO_BASE_URL | http://nginx | ダウンロードURL生成用ベースURL |
 | MCPO_CONFIG_FILE | /app/config/mcp-servers.json | MCP設定ファイルパス |
 | MCPO_JOBS_DIR | /tmp/mcpo-jobs | ジョブディレクトリルート |
-| MCPO_FILE_EXPIRY | 3600 | ファイル有効期限（秒） |
 | MCPO_MAX_CONCURRENT | 16 | 最大同時実行プロセス数 |
 | MCPO_TIMEOUT | 300 | プロセスタイムアウト（秒） |
 | MCPO_LOG_LEVEL | INFO | ログレベル |
+
+### ディレクトリ構造
+
+プロジェクトのディレクトリ構造:
+
+```
+mcpo-bridge/
+├── config/
+│   ├── mcp-servers.json          # MCP設定（要作成）
+│   └── mcp-servers.json.example  # サンプル設定
+├── nginx/
+│   ├── nginx.conf                # Nginx設定
+│   └── conf.d/
+│       └── default.conf          # サイト設定
+├── docs/
+│   ├── detailed-design.md        # 詳細設計書
+│   └── docker-deployment.md      # Docker設計書
+├── data/                         # バインドマウント（gitignore）
+│   ├── mcpo-jobs/                # 一時ファイル
+│   └── mcpo-logs/                # ログファイル
+├── docker-compose.yml
+├── Dockerfile
+└── README.md
+```
 
 ## API
 
@@ -205,14 +215,14 @@ docker-compose.ymlで以下の環境変数を設定できます:
 #### MCPOエンドポイント
 
 - **URL**: `http://localhost/mcpo/{server-type}`
-- 例：`/mcpo/pptx-generator`、`/mcpo/pdf-generator`
+- 例：`/mcpo/powerpoint`
 - **メソッド**: POST
 - **形式**: JSON-RPC 2.0
 
 #### MCPエンドポイント
 
 - **URL**: `http://localhost/mcp/{server-type}`
-- 例：`/mcp/pptx-generator`、`/mcp/pdf-generator`
+- 例：`/mcp/powerpoint`
 - **メソッド**: POST
 - **形式**: MCP標準プロトコル
 
@@ -255,9 +265,9 @@ Nginxのみ:
 docker-compose logs -f nginx
 ```
 
-ログボリュームから直接確認:
+ローカルログファイルから直接確認:
 ```bash
-docker-compose exec mcpo-bridge ls -la /var/log/mcpo
+ls -la ./data/mcpo-logs/
 ```
 
 ### サービス再起動
@@ -290,6 +300,24 @@ docker-compose up -d
 ```
 
 Nginxが自動的に新しいインスタンスをロードバランシング対象に追加します。
+
+### データディレクトリ管理
+
+一時ファイルとログは`./data`ディレクトリに保存されます:
+
+- `./data/mcpo-jobs/`: 生成されたファイルとメタデータ
+- `./data/mcpo-logs/`: アプリケーションログ
+
+これらのディレクトリは`.gitignore`で除外されているため、Gitにコミットされません。
+
+#### ディスク容量管理
+
+ガーベジコレクションは定期的に古いファイルを削除しますが、手動でもクリーンアップ可能:
+
+```bash
+# 古いジョブディレクトリを削除
+find ./data/mcpo-jobs -type d -mtime +1 -exec rm -rf {} +
+```
 
 ## 監視
 
@@ -337,10 +365,10 @@ docker-compose logs nginx
 
 2. ジョブディレクトリの確認:
 ```bash
-docker-compose exec mcpo-bridge ls -la /tmp/mcpo-jobs
+ls -la ./data/mcpo-jobs/
 ```
 
-3. 有効期限の確認（デフォルト1時間）
+3. ファイルが生成されているか確認
 
 ### スケーリングが機能しない
 
@@ -354,12 +382,24 @@ Bridgeインスタンス数確認:
 docker-compose ps mcpo-bridge
 ```
 
+### データディレクトリの権限エラー
+
+権限を確認:
+```bash
+ls -ld ./data/
+```
+
+必要に応じて権限を修正:
+```bash
+chmod 755 ./data
+chmod 755 ./data/mcpo-jobs ./data/mcpo-logs
+```
+
 ## セキュリティ
 
 - Dockerコンテナはroot権限で実行（シンプル化）
 - ジョブディレクトリはUUID v4で一意に識別
 - ダウンロードURLは推測困難なUUID使用
-- 有効期限付きファイルアクセス
 - 内部ネットワーク分離
 - 入力検証はMCPサーバーに委譲
 - Nginxによる外部公開制御
