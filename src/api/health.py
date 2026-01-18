@@ -4,7 +4,7 @@
 サービスの健全性をチェックするエンドポイント
 """
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter
 
 from src.models.job import HealthResponse
@@ -41,7 +41,7 @@ async def health_check():
     
     return HealthResponse(
         status=status,
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(timezone.utc),
         version="1.0.0",
         uptime=uptime,
         stateful_processes=stateful_processes_count if settings.stateful_enabled else None

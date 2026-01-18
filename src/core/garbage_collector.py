@@ -7,7 +7,7 @@ import asyncio
 import shutil
 import logging
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from src.core.config import settings
 from src.core.job_manager import job_manager
@@ -36,7 +36,7 @@ class GarbageCollector:
             logger.warning(f"Jobs directory does not exist: {self.jobs_dir}")
             return
         
-        cutoff_time = datetime.utcnow() - timedelta(seconds=self.file_expiry)
+        cutoff_time = datetime.now(timezone.utc) - timedelta(seconds=self.file_expiry)
         deleted_count = 0
         
         logger.info(f"Starting garbage collection (cutoff: {cutoff_time})")

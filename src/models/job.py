@@ -3,7 +3,7 @@
 
 ジョブ、リクエスト、レスポンスのデータ構造を定義
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
 from enum import Enum
@@ -23,7 +23,7 @@ class JobMetadata(BaseModel):
     """
     job_id: str = Field(..., description="ジョブの一意識別子（UUID）")
     server_type: str = Field(..., description="使用したMCPサーバータイプ")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="作成日時")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="作成日時")
     status: JobStatus = Field(default=JobStatus.PROCESSING, description="ジョブステータス")
     request: Optional[Dict[str, Any]] = Field(None, description="受信したMCPリクエスト")
     response: Optional[Dict[str, Any]] = Field(None, description="MCPサーバーレスポンス")
@@ -36,7 +36,7 @@ class HealthResponse(BaseModel):
     ヘルスチェックレスポンス
     """
     status: str = Field(..., description="健全性ステータス（ok/degraded/down）")
-    timestamp: datetime = Field(default_factory=datetime.utcnow, description="チェック実行時刻")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="チェック実行時刻")
     version: str = Field(default="1.0.0", description="Bridgeバージョン")
     uptime: Optional[float] = Field(None, description="稼働時間（秒）")
     active_processes: Optional[int] = Field(None, description="アクティブなプロセス数")
@@ -64,12 +64,12 @@ class MCPORequest(BaseModel):
 class ProcessInfo(BaseModel):
     """
     プロセス情報
-    ステートフルプロセス管理用
+    ステートフルプロセス管理用（参照データモデル、実際の管理は別クラス）
     """
     process_id: int = Field(..., description="プロセスID")
     server_type: str = Field(..., description="MCPサーバータイプ")
     client_ip: str = Field(..., description="クライアントIPアドレス")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="プロセス作成日時")
-    last_access: datetime = Field(default_factory=datetime.utcnow, description="最終アクセス日時")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="プロセス作成日時")
+    last_access: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="最終アクセス日時")
     request_count: int = Field(default=0, description="処理したリクエスト数")
     idle_timeout: int = Field(..., description="アイドルタイムアウト秒数")

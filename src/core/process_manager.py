@@ -13,7 +13,7 @@ import time
 import os
 from typing import Dict, Optional, Any, Tuple
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 from src.core.config import settings, mcp_config
 from src.models.job import JobStatus
@@ -21,8 +21,8 @@ from src.models.job import JobStatus
 logger = logging.getLogger(__name__)
 
 
-class ProcessInfo:
-    """プロセス情報を保持するクラス"""
+class StatefulProcessInfo:
+    """ステートフルプロセス情報を保持するクラス"""
     
     def __init__(
         self,
@@ -34,8 +34,8 @@ class ProcessInfo:
         self.process = process
         self.server_type = server_type
         self.client_ip = client_ip
-        self.created_at = datetime.utcnow()
-        self.last_access = datetime.utcnow()
+        self.created_at = datetime.now(timezone.utc)
+        self.last_access = datetime.now(timezone.utc)
         self.request_count = 0
         self.idle_timeout = idle_timeout
     
@@ -68,7 +68,7 @@ class ProcessInfo:
         Returns:
             タイムアウトしている場合True
         """
-        idle_seconds = (datetime.utcnow() - self.last_access).total_seconds()
+        idle_seconds = (datetime.now(timezone.utc) - self.last_access).total_seconds()
         return idle_seconds > self.idle_timeout
 
 
@@ -82,8 +82,8 @@ class ProcessManager:
         """初期化"""
         self.semaphore = asyncio.Semaphore(settings.max_concurrent)
         
-        # ステートフルプロセスプール: {server_type: {client_ip: ProcessInfo}}
-        self.stateful_processes: Dict[str, Dict[str, ProcessInfo]] = {}
+        # ステートフルプロセスプール: {server_type: {client_ip: StatefulProcessInfo}}
+        self.stateful_processes: Dict[str, Dict[str, StatefulProcessInfo]] = {}
         self.stateful_lock = asyncio.Lock()
     
     async def execute_request(
@@ -197,7 +197,7 @@ class ProcessManager:
             
             # プロセス情報を更新
             async with self.stateful_lock:
-                process_info.last_access = datetime.utcnow()
+                process_info.last_access = datetime.now(timezone.utc)
                 process_info.request_count += 1
             
             return response_data, exit_code
@@ -215,7 +215,7 @@ class ProcessManager:
         server_config: dict,
         job_dir: Path,
         client_ip: str
-    ) -> Optional[ProcessInfo]:
+    ) -> Optional[StatefulProcessInfo]:
         """
         ステートフルプロセスを取得または作成
         
@@ -226,7 +226,7 @@ class ProcessManager:
             client_ip: クライアントIPアドレス
         
         Returns:
-            ProcessInfoオブジェクト
+            StatefulProcessInfoオブジェクト
         """
         # サーバータイプのプールを初期化
         if server_type not in self.stateful_processes:
@@ -250,7 +250,7 @@ class ProcessManager:
         idle_timeout = mcp_config.get_idle_timeout(server_type)
         process = await self._start_process(server_config, job_dir)
         
-        process_info = ProcessInfo(
+        process_info = StatefulProcessInfo(
             process=process,
             server_type=server_type,
             client_ip=client_ip,
@@ -439,7 +439,7 @@ class ProcessManager:
                     if process_info.is_idle_timeout():
                         logger.info(
                             f"Cleaning up idle process for {client_ip} "
-                            f"(idle for {(datetime.utcnow() - process_info.last_access).total_seconds()}s)"
+                            f"(idle for {(datetime.now(timezone.utc) - process_info.last_access).total_seconds()}s)"
                         )
                         await self._remove_stateful_process(server_type, client_ip)
     
