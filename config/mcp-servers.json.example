@@ -8,14 +8,18 @@
       ],
       "env": {
         "NODE_ENV": "production"
-      }
+      },
+      "mode": "stateful",
+      "idle_timeout": 1800,
+      "max_processes_per_ip": 1
     },
     "excel": {
       "command": "uvx",
       "args": [
         "excel-mcp-server",
         "stdio"
-      ]
+      ],
+      "mode": "stateless"
     }
   }
 }

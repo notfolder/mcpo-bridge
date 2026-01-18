@@ -50,6 +50,12 @@ services:
       - MCPO_MAX_CONCURRENT=16
       - MCPO_TIMEOUT=300
       - MCPO_LOG_LEVEL=INFO
+      # Stateful mode configuration
+      - MCPO_STATEFUL_ENABLED=true
+      - MCPO_STATEFUL_DEFAULT_IDLE_TIMEOUT=1800
+      - MCPO_STATEFUL_MAX_PROCESSES_PER_IP=1
+      - MCPO_STATEFUL_MAX_TOTAL_PROCESSES=100
+      - MCPO_STATEFUL_CLEANUP_INTERVAL=300
     networks:
       - mcpo-network
     healthcheck:

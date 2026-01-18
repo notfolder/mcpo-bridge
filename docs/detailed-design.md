@@ -61,45 +61,22 @@
 
 システムは以下のコンポーネントから構成される：
 
-#### 論理構成図
+#### 論理構成
 
-```
-User Browser
-   |
-   | HTTPS
-   v
-Nginx (Load Balancer & File Server)
-   |
-   +-- Load Balancing --> MCPO Bridge Instance 1
-   |                      MCPO Bridge Instance 2
-   |                      MCPO Bridge Instance N
-   |
-   +-- Static Files ----> Bind Mount (./data/mcpo-jobs)
-   
-   
-OpenWebUI (Docker Container)
-   |
-   | MCP / MCPO (JSON-RPC over HTTP)
-   v
-Nginx Load Balancer
-   |
-   v
-MCPO On-Demand Bridge (Docker Container x N)
-   |
-   | per-request subprocess
-   |   - 作業ディレクトリ作成 (./data/mcpo-jobs/job-uuid)
-   |   - MCP Server プロセス起動
-   v
-Ephemeral MCP Server Process
-   |
-   | ファイル生成 (pptx, pdf, etc.)
-   v
-Temporary File Store (Bind Mount)
-   |
-   | HTTPS download via Nginx
-   v
-User Browser
-```
+**ユーザーアクセスフロー：**
+1. ユーザーブラウザからHTTPSでNginxにアクセス
+2. Nginxがロードバランサーとして複数のMCPO Bridgeインスタンスに分散
+3. Nginxが静的ファイルサーバーとしてバインドマウントされた./data/mcpo-jobsからファイルを配信
+
+**OpenWebUIフロー：**
+1. OpenWebUIコンテナからMCP/MCPO（JSON-RPC over HTTP）でNginxロードバランサーにリクエスト
+2. NginxがMCPO On-Demand Bridgeコンテナ（複数インスタンス）に転送
+3. Bridgeがリクエストごとにサブプロセスを起動
+   - 作業ディレクトリ作成（./data/mcpo-jobs/（ジョブUUID））
+   - MCPサーバープロセス起動
+4. Ephemeral MCPサーバープロセスがファイルを生成（pptx、pdf等）
+5. 生成ファイルはバインドマウントされた一時ファイルストアに保存
+6. ユーザーブラウザがNginx経由でHTTPSダウンロード
 
 #### Docker構成
 
@@ -157,10 +134,20 @@ Nginxコンポーネントは以下の責務を持つ：
 
 #### 4.1.3 ロードバランシング設定
 
+##### ステートレスモード
+
 - アルゴリズム：ラウンドロビン
 - ヘルスチェック：/health エンドポイントを定期的にチェック
 - フェイルオーバー：unhealthyなインスタンスを自動除外
-- セッションアフィニティ：不要（ステートレス設計）
+- セッションアフィニティ：不要
+
+##### ステートフルモード
+
+- アルゴリズム：ip_hash（クライアントIPベースのスティッキーセッション）
+- ヘルスチェック：/health エンドポイントを定期的にチェック
+- フェイルオーバー：unhealthyなインスタンスを自動除外
+- セッションアフィニティ：必須（同一IPは同一インスタンスへルーティング）
+- 詳細：セクション19「ステートフルMCPサーバー対応設計」を参照
 
 #### 4.1.4 静的ファイル配信設定
 
@@ -255,6 +242,9 @@ BridgeはClaude等で使用されるMCPサーバー設定JSON形式を使用す�
 - command：実行するコマンドパス（絶対パスまたは相対パス）
 - args：コマンドライン引数の配列
 - env：環境変数のキーバリューマップ（オプショナル）
+- mode：実行モード（"stateful" / "stateless"、オプショナル、デフォルト: "stateless"）
+- idle_timeout：アイドルタイムアウト秒数（オプショナル、modeが"stateful"の場合のみ有効、デフォルト: 1800）
+- max_processes_per_ip：IPアドレスごとの最大プロセス数（オプショナル、modeが"stateful"の場合のみ有効、デフォルト: 1）
 
 ##### 設定ファイルの配置
 
@@ -328,15 +318,14 @@ MCPサーバー実装は以下を満たす必要がある：
 
 一時ファイルは以下の構造で管理される：
 
-```
-./data/mcpo-jobs/
-  └── {job-uuid}/
-       ├── request.json      # 受信したMCPリクエスト
-       ├── response.json     # MCPサーバーからのレスポンス
-       ├── metadata.json     # ジョブメタデータ
-       ├── output.pptx       # 生成ファイル（例）
-       └── server.log        # MCPサーバーログ（オプション）
-```
+**ルートディレクトリ：** ./data/mcpo-jobs/
+
+**各ジョブディレクトリ：** ｛ジョブUUID｝/
+- request.json：受信したMCPリクエスト
+- response.json：MCPサーバーからのレスポンス
+- metadata.json：ジョブメタデータ
+- output.pptx：生成ファイル（例）
+- server.log：MCPサーバーログ（オプション）
 
 #### 4.4.2 ディレクトリライフサイクル
 
@@ -581,12 +570,22 @@ MCPサーバーからのレスポンスをそのまま返却：
 
 ### 7.1 Bridge設定用環境変数
 
+#### 基本設定
+
 - MCPO_CONFIG_FILE：MCP設定ファイルパス（デフォルト：/app/config/mcp-servers.json）
 - MCPO_JOBS_DIR：ジョブディレクトリルート（デフォルト：/tmp/mcpo-jobs）
 - MCPO_BASE_URL：ダウンロードURL用ベースURL（デフォルト：http://nginx）
 - MCPO_MAX_CONCURRENT：最大同時実行数（デフォルト：CPU数×4）
 - MCPO_TIMEOUT：プロセスタイムアウト（秒）（デフォルト：300）
 - MCPO_LOG_LEVEL：ログレベル（デフォルト：INFO）
+
+#### ステートフル設定
+
+- MCPO_STATEFUL_ENABLED：ステートフル機能の有効化（デフォルト：true）
+- MCPO_STATEFUL_DEFAULT_IDLE_TIMEOUT：デフォルトアイドルタイムアウト秒数（デフォルト：1800）
+- MCPO_STATEFUL_MAX_PROCESSES_PER_IP：IPごとの最大プロセス数（デフォルト：1）
+- MCPO_STATEFUL_MAX_TOTAL_PROCESSES：全体の最大プロセス数（デフォルト：100）
+- MCPO_STATEFUL_CLEANUP_INTERVAL：クリーンアップ間隔秒数（デフォルト：300）
 
 ### 7.2 MCPサーバー実行時環境変数
 
@@ -734,20 +733,19 @@ MCPサーバープロセスに渡される環境変数：
 
 外部cronジョブでガーベジコレクションを実行する場合の設定例：
 
-```bash
-# 毎時0分にガーベジコレクションを実行
-0 * * * * docker exec mcpo-bridge python -m src.utils.gc_jobs
+**毎時0分に実行する場合：**
+- cron式：0 * * * *
+- 実行コマンド：docker exec mcpo-bridge python -m src.utils.gc_jobs
 
-# 毎日午前3時にガーベジコレクションを実行
-0 3 * * * docker exec mcpo-bridge python -m src.utils.gc_jobs
-```
+**毎日午前3時に実行する場合：**
+- cron式：0 3 * * *
+- 実行コマンド：docker exec mcpo-bridge python -m src.utils.gc_jobs
 
-または、ホストマシンから直接ディレクトリをクリーンアップする場合：
-
-```bash
-# 24時間以上経過したジョブディレクトリを削除
-0 * * * * find /path/to/data/mcpo-jobs -mindepth 1 -maxdepth 1 -type d -mtime +1 -exec rm -rf {} \;
-```
+**ホストマシンから直接ディレクトリをクリーンアップする場合：**
+- cron式：0 * * * *
+- 実行内容：findコマンドを使用して、24時間以上経過したジョブディレクトリを削除
+- パス：/path/to/data/mcpo-jobs
+- オプション：-mindepth 1 -maxdepth 1 -type d -mtime +1 -exec rm -rf
 
 ### 10.3 削除処理フロー
 
@@ -861,23 +859,23 @@ MCPサーバーからのエラーレスポンスをそのまま返却：
 
 コンテナ内ディレクトリ配置：
 
-```
-/app/
-  ├── main.py                 # アプリケーションエントリーポイント
-  ├── requirements.txt        # Python依存パッケージ
-  ├── config/                 # 設定ファイルディレクトリ（ソースコード配下）
-  │   ├── mcp-servers.json    # MCPサーバー定義
-  │   └── mcp-servers.json.example  # サンプル設定
-  └── src/                    # ソースコードディレクトリ
-      ├── api/                # APIエンドポイント
-      ├── core/               # コアロジック
-      ├── models/             # データモデル
-      └── utils/              # ユーティリティ
+**/app/ ディレクトリ：**
+- main.py：アプリケーションエントリーポイント
+- requirements.txt：Python依存パッケージ
+- config/：設定ファイルディレクトリ（ソースコード配下）
+  - mcp-servers.json：MCPサーバー定義
+  - mcp-servers.json.example：サンプル設定
+- src/：ソースコードディレクトリ
+  - api/：APIエンドポイント
+  - core/：コアロジック
+  - models/：データモデル
+  - utils/：ユーティリティ
 
-/tmp/mcpo-jobs/             # 一時ファイル作業領域（バインドマウント）
+**/tmp/mcpo-jobs/ ディレクトリ：**
+- 一時ファイル作業領域（バインドマウント）
 
-/var/log/mcpo/              # ログディレクトリ（バインドマウント）
-```
+**/var/log/mcpo/ ディレクトリ：**
+- ログディレクトリ（バインドマウント）
 
 ### 12.3 依存パッケージ管理
 
@@ -1123,25 +1121,18 @@ excel-mcp-serverは複数のトランスポート方式をサポートしてい�
 
 #### 複数サーバーの同時使用
 
-Node.js製とPython製のMCPサーバーを同時に使用する場合：
+Node.js製PowerPointサーバーとPython製Excelサーバーを同時に使用する場合の設定例：
 
-```json
-{
-  "mcpServers": {
-    "powerpoint": {
-      "command": "npx",
-      "args": ["-y", "@gongrzhe/office-powerpoint-mcp-server"],
-      "env": {"NODE_ENV": "production"}
-    },
-    "excel": {
-      "command": "uvx",
-      "args": ["excel-mcp-server", "stdio"]
-    }
-  }
-}
-```
+**powerpointサーバー：**
+- コマンド：npx
+- 引数：-y、@gongrzhe/office-powerpoint-mcp-server
+- 環境変数：NODE_ENV=production
 
-この場合、Dockerfileで以下の両方をインストールする必要があります：
+**excelサーバー：**
+- コマンド：uvx
+- 引数：excel-mcp-server、stdio
+
+この構成を使用する場合、Dockerfileで以下の両方をインストールする必要があります：
 - Node.js（npx用）
 - uv（uvx用）
 
@@ -1158,9 +1149,18 @@ Node.js製とPython製のMCPサーバーを同時に使用する場合：
 
 #### アップストリーム定義
 
+##### ステートレス用（デフォルト）
+
 - mcpo-bridgeサービスの全レプリカを自動検出
 - Docker DNSによる名前解決
 - ラウンドロビンアルゴリズム
+
+##### ステートフル用
+
+- mcpo-bridgeサービスの全レプリカを自動検出
+- Docker DNSによる名前解決
+- ip_hashアルゴリズム（クライアントIPベースのスティッキーセッション）
+- 詳細：セクション19.7「Nginx設定変更」を参照
 
 #### ヘルスチェック
 
@@ -1321,9 +1321,488 @@ Node.js製とPython製のMCPサーバーを同時に使用する場合：
 - バインドマウントによるシンプルなストレージ管理
 - Office-PowerPoint-MCP-Serverをuvxで起動する設定例
 - シンプルで保守しやすい設計
+- IPアドレスベースのステートフルMCPサーバー対応（セクション19）
 
 本設計に基づき実装を進めることで、安全でスケーラブルなファイル生成系MCPサーバー基盤を構築できる。
 
----
+## 19. ステートフルMCPサーバー対応設計
 
-**MCPO On-Demand Bridge 詳細設計書 v3.0**
+### 19.1 背景と目的
+
+特定のMCPサーバー（office-powerpoint-mcp-serverなど）は、複数リクエスト間で状態（例：presentation_id）を保持する必要がある。Ephemeralモデルでは各リクエストでプロセスが終了するため、状態管理ができない。
+
+**設計目標：**
+- プロセスを複数リクエスト間で永続化
+- 同一クライアントからのリクエストは同一プロセスで処理
+- OpenWebUIの変更なしで実装可能
+
+### 19.2 設計方針
+
+#### 前提条件
+
+✅ **必須前提：**
+- クライアントIPアドレスは固定（NAT環境でもIPが変動しない）
+- プライベートネットワークまたは社内ネットワーク環境での利用
+- 信頼できるネットワーク環境
+
+⚠️ **適用できない環境：**
+- 複数ユーザーが同一NATを共有する環境
+- モバイルネットワークなどIP変動が頻繁な環境
+- パブリッククラウドで動的IPが割り当てられる環境
+
+#### 採用方式
+
+**クライアントIPアドレスベースのセッション管理：**
+- Nginxの`ip_hash`ディレクティブで同一IPを同一Bridgeインスタンスへルーティング
+- Bridge側でIPアドレスごとにプロセスプールを管理
+- アイドルタイムアウトで自動プロセス終了
+
+**OpenWebUIとの統合：**
+- OpenWebUI側の変更は不要（現行の制約: ユーザー識別ヘッダーはMCP接続時に送信されない）
+- Nginxが`X-Real-IP`および`X-Forwarded-For`ヘッダーを付与
+- Bridge側でヘッダーからクライアントIPを抽出
+
+### 19.3 全体アーキテクチャ
+
+```
+OpenWebUI (Client IP: 192.168.1.100)
+   |
+   | MCP Request
+   v
+Nginx (ip_hash load balancing)
+   |
+   | 同一IPは常に同一Bridgeインスタンスへルーティング
+   | X-Real-IP: 192.168.1.100
+   | X-Forwarded-For: 192.168.1.100
+   v
+MCPO Bridge Instance (例: instance-1)
+   |
+   | IP-based Process Pool
+   |
+   +-- 192.168.1.100 → PowerPoint Process (persistent, stateful)
+   +-- 192.168.1.101 → PowerPoint Process (persistent, stateful)
+   +-- 192.168.1.102 → PowerPoint Process (persistent, stateful)
+```
+
+### 19.4 MCPサーバー設定拡張
+
+#### 設定ファイル（mcp-servers.json）
+
+**powerpointサーバーの設定例：**
+- コマンド：npx
+- 引数：-y、@gongrzhe/office-powerpoint-mcp-server
+- モード：stateful（ステートフル）
+- アイドルタイムアウト：1800秒（30分）
+- IPアドレスごとの最大プロセス数：1
+
+**excelサーバーの設定例：**
+- コマンド：uvx
+- 引数：excel-mcp-server、stdio
+- モード：stateless（ステートレス）
+
+#### 新規フィールド仕様
+
+| フィールド | 型 | 必須 | デフォルト | 説明 |
+|---|---|---|---|---|
+| mode | string | No | "stateless" | "stateful" または "stateless" |
+| idle_timeout | integer | No | 1800 | アイドルタイムアウト秒数（30分） |
+| max_processes_per_ip | integer | No | 1 | IPアドレスごとの最大プロセス数 |
+
+**mode="stateful"の動作：**
+- プロセスはリクエスト後も終了せず待機状態を維持
+- 同一IPからの次回リクエストは既存プロセスを再利用
+- `idle_timeout`経過後に自動終了
+
+**mode="stateless"の動作：**
+- 従来のEphemeralモデル（1リクエスト=1プロセス）
+- リクエスト処理後に即座にプロセス終了
+
+### 19.5 プロセスプール管理
+
+#### データ構造
+
+**グローバルプロセスプール：**
+
+階層構造は以下の通り：
+- 第1階層：サーバータイプ（例：powerpoint、excel）
+- 第2階層：クライアントIPアドレス
+- 第3階層：プロセス情報
+
+**プロセス情報に含まれる項目：**
+- process：実行中のサブプロセスオブジェクト
+- stdin：標準入力ストリーム（リクエスト送信用）
+- stdout：標準出力ストリーム（レスポンス受信用）
+- stderr：標準エラー出力ストリーム
+- last_access：最終アクセス日時（アイドルタイムアウト判定用）
+- created_at：プロセス作成日時
+- request_count：処理したリクエスト数
+- idle_timeout：このプロセス固有のアイドルタイムアウト秒数
+
+#### プロセスライフサイクル
+
+**1. プロセス起動（初回リクエスト時）:**
+
+条件判定：
+- モードがステートフルである
+- かつ、プロセスプールに該当クライアントIPのエントリが存在しない
+
+処理内容：
+- サーバー設定に基づき新規MCPサーバープロセスを起動
+- プロセスプールに以下の情報を登録：
+  - プロセスオブジェクト
+  - 標準入力ストリーム
+  - 標準出力ストリーム
+  - 最終アクセス日時（現在時刻）
+  - 作成日時（現在時刻）
+  - リクエストカウント（0で初期化）
+
+**2. プロセス再利用（2回目以降）:**
+
+条件判定：
+- モードがステートフルである
+- かつ、プロセスプールに該当クライアントIPのエントリが存在する
+
+処理内容：
+- プロセスプールから該当IPのプロセス情報を取得
+- プロセスの健全性チェックを実施
+
+健全性チェック合格の場合：
+- 既存プロセスを再利用
+- 最終アクセス日時を現在時刻に更新
+- リクエストカウントを1増加
+- 既存プロセスにリクエストを送信
+
+健全性チェック不合格の場合：
+- 該当プロセスを終了
+- プロセスプールからエントリを削除
+- 新規プロセス起動処理に移行（上記1の処理を実行）
+
+**3. プロセス終了（アイドルタイムアウト）:**
+
+**バックグラウンドクリーンアップタスクの動作：**
+
+定期実行間隔：
+- 5分ごとに実行（環境変数MCPO_STATEFUL_CLEANUP_INTERVALで調整可能）
+
+処理内容：
+- 全サーバータイプを走査
+- 各サーバータイプ内の全クライアントIPを走査
+- 各プロセス情報について以下をチェック：
+  - 現在時刻と最終アクセス日時の差分（アイドル時間）を計算
+  - アイドル時間がidle_timeout設定値を超過しているか判定
+
+タイムアウト超過の場合：
+- 該当プロセスを終了（SIGTERM送信）
+- プロセスプールから該当エントリを削除
+- ログに終了情報を記録（サーバータイプ/クライアントIP）
+
+### 19.6 クライアントIP抽出
+
+#### 優先順位
+
+**クライアントIPアドレス抽出関数の仕様：**
+
+抽出の優先順位（上から順に試行）：
+
+1. **X-Forwarded-Forヘッダーの利用**
+   - HTTPリクエストヘッダーからX-Forwarded-Forを取得
+   - ヘッダーが存在する場合：
+     - カンマ区切りで分割
+     - 最初のIPアドレスを抽出
+     - 空白をトリムして返却
+
+2. **X-Real-IPヘッダーの利用**
+   - HTTPリクエストヘッダーからX-Real-IPを取得（Nginxが設定）
+   - ヘッダーが存在する場合：
+     - 空白をトリムして返却
+
+3. **リクエストオブジェクトのクライアント情報を利用**
+   - リクエストオブジェクトにclient属性が存在する場合：
+     - client.host（直接接続時のIPアドレス）を返却
+
+4. **フォールバック値**
+   - 上記のいずれからもIPが取得できない場合：
+     - 「unknown」文字列を返却
+
+#### IP検証
+
+**IPアドレスの妥当性検証関数の仕様：**
+
+入力：
+- IPアドレス文字列
+
+処理：
+- Pythonのipaddressモジュールを使用してパースを試みる
+- パース成功時：Trueを返却
+- パース失敗時（ValueError発生）：Falseを返却
+
+### 19.7 Nginx設定変更
+
+#### アップストリーム定義
+
+**ステートフル用アップストリーム：**
+- 名称：mcpo_bridge_stateful
+- 負荷分散方式：ip_hash（同一IPアドレスを同一サーバーへルーティング）
+- バックエンドサーバー：mcpo-bridge:8080
+- 故障検知設定：
+  - max_fails: 3（最大3回失敗で利用不可判定）
+  - fail_timeout: 30秒（再試行までの待機時間）
+
+**ステートレス用アップストリーム：**
+- 名称：mcpo_bridge_stateless
+- 負荷分散方式：ラウンドロビン（デフォルト）
+- バックエンドサーバー：mcpo-bridge:8080
+- 故障検知設定：
+  - max_fails: 3
+  - fail_timeout: 30秒
+
+#### ロケーション設定（サーバータイプ別）
+
+**ステートフルMCPサーバー（powerpoint）の設定：**
+- パスパターン：/mcpo/powerpointで始まるパス
+- プロキシ先：http://mcpo_bridge_stateful
+- HTTPバージョン：1.1
+- 設定するヘッダー：
+  - Host: リクエストのホスト名
+  - X-Real-IP: クライアントの実際IPアドレス
+  - X-Forwarded-For: プロキシチェーン内の全IPアドレス
+  - X-Forwarded-Proto: プロトコル（http/https）
+- バッファリング：無効
+- タイムアウト設定（長時間接続用）：
+  - proxy_connect_timeout: 600秒
+  - proxy_send_timeout: 600秒
+  - proxy_read_timeout: 600秒
+
+**ステートレスMCPサーバー（excel）の設定：**
+- パスパターン：/mcpo/excelで始まるパス
+- プロキシ先：http://mcpo_bridge_stateless
+- その他の設定は上記powerpointと同様（タイムアウトはデフォルト値）
+
+**デフォルト設定（その他のサーバータイプ）：**
+- パスパターン：/mcpo/（サーバータイプ名）の形式
+- プロキシ先：http://mcpo_bridge_stateless
+- その他の設定は上記excelと同様
+
+### 19.8 環境変数拡張
+
+#### 新規環境変数
+
+**MCPO_STATEFUL_ENABLED:**
+- 説明：ステートフル機能の有効化
+- 型：ブール値（true/false）
+- デフォルト値：true
+
+**MCPO_STATEFUL_DEFAULT_IDLE_TIMEOUT:**
+- 説明：グローバル設定のアイドルタイムアウト秒数（mcp-servers.jsonの個別設定で上書き可能）
+- 型：整数
+- デフォルト値：1800（30分）
+
+**MCPO_STATEFUL_MAX_PROCESSES_PER_IP:**
+- 説明：クライアントIPアドレスごとの最大プロセス数
+- 型：整数
+- デフォルト値：1
+
+**MCPO_STATEFUL_MAX_TOTAL_PROCESSES:**
+- 説明：システム全体での最大ステートフルプロセス数
+- 型：整数
+- デフォルト値：100
+
+**MCPO_STATEFUL_CLEANUP_INTERVAL:**
+- 説明：クリーンアップタスクの実行間隔（秒数）
+- 型：整数
+- デフォルト値：300（5分）
+
+#### docker-compose.yml追加例
+
+**mcpo-bridgeサービスの環境変数設定：**
+- MCPO_STATEFUL_ENABLEDをtrueに設定
+- MCPO_STATEFUL_DEFAULT_IDLE_TIMEOUTを1800に設定
+- MCPO_STATEFUL_MAX_PROCESSES_PER_IPを1に設定
+- MCPO_STATEFUL_MAX_TOTAL_PROCESSESを100に設定
+- MCPO_STATEFUL_CLEANUP_INTERVALを300に設定
+
+### 19.9 処理フロー（ステートフルモード）
+
+#### リクエスト受信時
+
+**処理フローの詳細：**
+
+1. **HTTPリクエスト受信**
+
+2. **クライアントIP抽出**
+   - X-Forwarded-Forヘッダーから抽出を試みる
+   - 失敗時はX-Real-IPヘッダーを試行
+   - さらに失敗時はrequest.client.hostを使用
+
+3. **サーバータイプとmode確認**
+   - mcp-servers.jsonから該当サーバーの設定を読み込み
+
+4. **mode判定と分岐**
+
+   **mode == "stateful"の場合（ステートフル処理）:**
+   
+   a. **プロセスプールチェック**
+      - 該当IPのプロセスがプールに存在するか確認
+   
+   b-1. **既存プロセスが存在する場合:**
+      - プロセス健全性チェックを実施
+      
+      - **健全な場合:**
+        - 既存プロセスを再利用
+        - リクエストをプロセスに送信
+        - last_accessを現在時刻に更新
+        - レスポンスを受信
+      
+      - **不健全な場合:**
+        - プロセスを削除
+        - 新規プロセス起動処理へ移行（下記b-2へ）
+   
+   b-2. **既存プロセスが存在しない場合:**
+      - 新規MCPサーバープロセスを起動
+      - プロセス情報をプールに登録
+      - リクエストをプロセスに送信
+      - レスポンスを受信
+   
+   c. **レスポンス返却**
+      - クライアントにレスポンスを返却
+      - 注意：プロセスは終了せずに待機状態を維持
+
+   **mode == "stateless"の場合（ステートレス処理）:**
+   
+   a. **新規プロセス起動**
+      - MCPサーバープロセスを起動
+   
+   b. **リクエスト処理**
+      - リクエストをプロセスに送信
+      - レスポンスを受信
+   
+   c. **プロセス終了**
+      - プロセスを即座に終了
+   
+   d. **レスポンス返却**
+      - クライアントにレスポンスを返却
+
+#### バックグラウンドクリーンアップ
+
+**バックグラウンドタスクの動作：**
+
+1. **起動時にバックグラウンドタスク開始**
+
+2. **ループ処理**
+   
+   a. **待機**
+      - MCPO_STATEFUL_CLEANUP_INTERVAL秒間待機（デフォルト：5分）
+   
+   b. **全プロセスプールをスキャン**
+      - 全サーバータイプを走査
+   
+   c. **各プロセスのlast_accessチェック**
+      - 現在時刻とlast_accessの差分を計算
+   
+   d. **idle_timeout経過判定**
+      
+      - **タイムアウト経過の場合:**
+        - SIGTERMシグナルをプロセスに送信
+        - 10秒間待機
+        - まだプロセスが生存しているか確認
+        - 生存している場合はSIGKILLシグナルを送信
+        - プロセスプールから削除
+        - ログに終了情報を記録
+      
+      - **タイムアウト未経過の場合:**
+        - スキップして次のプロセスをチェック
+   
+   e. **ループ継続**
+      - 手順aに戻り繰り返す
+
+### 19.10 エラーハンドリング
+
+#### プロセス異常検出
+
+**プロセス健全性チェック関数の仕様：**
+
+入力：
+- プロセスオブジェクト（subprocess.Popen）
+
+チェック項目：
+
+1. **プロセスの実行状態確認**
+   - プロセスが終了していないかチェック（pollメソッドで確認）
+   - 終了している場合：Falseを返却
+
+2. **標準入出力パイプの有効性確認**
+   - tryブロック内で以下をチェック：
+     - process.stdinが閉じられていないか
+     - process.stdoutが閉じられていないか
+   - いずれかが閉じられている場合：Falseを返却
+   - 例外が発生した場合：Falseを返却
+
+3. **全テスト合格の場合**
+   - Trueを返却（プロセスは健全）
+
+#### リカバリ動作
+
+**プロセス異常時の処理手順：**
+
+1. **異常検出**
+   - プロセスの予期せぬ終了を検出
+   - パイプの切断を検出
+   - タイムアウトの発生を検出
+
+2. **プロセスをプールから即座に削除**
+3. エラーログ記録
+4. 次回リクエストで新規プロセス起動
+5. クライアントには通常のエラーレスポンス返却
+
+**プロセスプール上限到達時：**
+1. `MCPO_STATEFUL_MAX_TOTAL_PROCESSES`到達検出
+2. 429 Too Many Requests 返却
+3. `Retry-After: 60`ヘッダー付与
+4. クライアント側でリトライ推奨
+
+### 19.11 制約事項と運用考慮
+
+#### 技術的制約
+
+| 制約 | 内容 | 影響 |
+|---|---|---|
+| IP固定前提 | クライアントIPが変動しない環境が必須 | モバイル環境では利用不可 |
+| IP共有環境 | 複数ユーザーが同一NATを共有する場合、状態が混在 | 社内ネットワーク等での利用を推奨 |
+| 負荷分散制限 | ip_hashにより特定インスタンスに負荷集中の可能性 | インスタンス数増加の効果に限界 |
+| メモリ使用量 | ステートフルプロセスは常駐するためメモリ消費が増加 | `max_total_processes`で制限 |
+
+#### セキュリティ考慮
+
+**IPアドレスの信頼性：**
+- IPアドレスは認証情報ではない（なりすまし可能）
+- 信頼できるネットワーク環境（社内ネットワーク等）での使用を推奨
+- 機密性の高いドキュメント生成には別途認証機構の実装を検討
+
+**プロキシ環境：**
+- Nginx以外のプロキシが前段にある場合、`X-Forwarded-For`ヘッダーの検証が必要
+- プロキシチェーンの最初のIPを使用（カンマ区切りの先頭）
+
+#### 運用推奨事項
+
+**適切な環境：**
+- ✅ 社内ネットワーク（固定IPまたは予測可能なIP割り当て）
+- ✅ プライベートクラウド（VPC内の固定IP）
+- ✅ 開発環境（ローカルネットワーク）
+
+**不適切な環境：**
+- ❌ パブリックインターネット（動的IP）
+- ❌ モバイルネットワーク（頻繁なIP変動）
+- ❌ 共有NAT環境（複数ユーザーが同一IP）
+
+**監視項目：**
+- ステートフルプロセス数（メトリクス）
+- IPアドレスごとのリクエスト数
+- アイドルタイムアウト発生率
+- プロセス異常終了率
+
+**パフォーマンスチューニング：**
+- `idle_timeout`の調整（頻繁な利用: 短く、散発的な利用: 長く）
+- `max_processes_per_ip`の調整（同時操作が必要な場合は増加）
+- Bridge replicasの増加（ただしip_hashの制限あり）
+
+**MCPO On-Demand Bridge 詳細設計書 v4.0**

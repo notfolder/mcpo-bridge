@@ -13,11 +13,21 @@ MCPO On-Demand Bridgeは、OpenWebUI + MCPO環境において、PowerPoint等の
 
 ## 特徴
 
-### Ephemeral（短命）プロセスモデル
+### Hybrid（ステートフル/ステートレス）プロセスモデル
+
+#### Stateless（ステートレス）モード
 
 - **1リクエスト = 1プロセス**: リクエスト毎にMCPサーバープロセスを起動
 - **即座に終了**: 処理完了後は即座にプロセス終了
 - **リソース効率**: メモリ常駐を避け、必要時のみリソース消費
+
+#### Stateful（ステートフル）モード
+
+- **セッション維持**: クライアントIPアドレスごとにプロセスを維持
+- **状態保持**: PowerPoint等の複数リクエスト間での状態保持が必要なサーバーに対応
+- **アイドルタイムアウト**: 非アクティブ時は自動的にプロセスを終了
+
+詳細は[ステートフル機能](#ステートフル機能ipアドレスベース)セクションを参照してください。
 
 ### セキュアなファイル管理
 
@@ -191,6 +201,54 @@ docker-compose.ymlで以下の環境変数を設定できます:
 | MCPO_MAX_CONCURRENT | 16 | 最大同時実行プロセス数 |
 | MCPO_TIMEOUT | 300 | プロセスタイムアウト（秒） |
 | MCPO_LOG_LEVEL | INFO | ログレベル |
+| MCPO_STATEFUL_ENABLED | true | ステートフル機能の有効化 |
+| MCPO_STATEFUL_DEFAULT_IDLE_TIMEOUT | 1800 | ステートフルプロセスのデフォルトアイドルタイムアウト（秒） |
+| MCPO_STATEFUL_MAX_PROCESSES_PER_IP | 1 | クライアントIPごとの最大プロセス数 |
+| MCPO_STATEFUL_MAX_TOTAL_PROCESSES | 100 | 全体の最大ステートフルプロセス数 |
+| MCPO_STATEFUL_CLEANUP_INTERVAL | 300 | ステートフルプロセスのクリーンアップ間隔（秒） |
+
+### ステートフル機能（IPアドレスベース）
+
+`MCPO_STATEFUL_ENABLED=true`の場合、ステートフルMCPサーバーのサポートが有効になります。
+
+#### 設計概要
+
+- **セッション識別**: クライアントIPアドレスベース（固定IP環境を想定）
+- **対象サーバー**: `mcp-servers.json`で`"mode": "stateful"`を指定したサーバー
+- **プロセス管理**: IPアドレスごとに専用プロセスを維持し、セッション状態を保持
+- **負荷分散**: Nginxの`ip_hash`ディレクティブにより、同一IPからのリクエストを同一Bridgeインスタンスにルーティング
+- **アイドルタイムアウト**: 指定時間リクエストがない場合、プロセスを自動終了
+
+#### 設定方法
+
+`config/mcp-servers.json`:
+```json
+{
+  "mcpServers": {
+    "powerpoint": {
+      "command": "npx",
+      "args": ["-y", "@gongrzhe/office-powerpoint-mcp-server"],
+      "mode": "stateful",
+      "idle_timeout": 1800,
+      "max_processes_per_ip": 1
+    },
+    "excel": {
+      "command": "uvx",
+      "args": ["excel-mcp-server", "stdio"],
+      "mode": "stateless"
+    }
+  }
+}
+```
+
+#### 運用上の注意
+
+- **適用環境**: プライベートネットワーク、企業ネットワーク、固定IP VPC環境
+- **非推奨環境**: パブリックインターネット、モバイルネットワーク、共有NAT環境
+- **セキュリティ**: IPアドレスは認証情報ではなく、信頼されたネットワーク内での使用を想定
+- **負荷集中**: `ip_hash`により特定Bridgeインスタンスに負荷が集中する可能性があります
+
+詳細設計は[docs/detailed-design.md](docs/detailed-design.md)のセクション19を参照してください。
 
 ### ディレクトリ構造
 
@@ -399,4 +457,4 @@ chmod 755 ./data/mcpo-jobs ./data/mcpo-logs
 
 ---
 
-**MCPO On-Demand Bridge** - Scalable, Secure, and Stateless MCP Server Bridge with Nginx Integration
+**MCPO On-Demand Bridge** - Scalable, Secure MCP Server Bridge with Stateful/Stateless Support and Nginx Integration
