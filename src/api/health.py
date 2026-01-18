@@ -10,6 +10,7 @@ from fastapi import APIRouter
 from src.models.job import HealthResponse
 from src.core.process_manager import process_manager
 from src.core.config import settings
+from src.version import VERSION
 
 router = APIRouter()
 
@@ -42,7 +43,7 @@ async def health_check():
     return HealthResponse(
         status=status,
         timestamp=datetime.now(timezone.utc),
-        version="1.0.0",
+        version=VERSION,
         uptime=uptime,
         stateful_processes=stateful_processes_count if settings.stateful_enabled else None
     )

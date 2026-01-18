@@ -347,7 +347,14 @@ class ProcessManager:
             
             # レスポンスをパース
             if stdout_data:
-                response_data = json.loads(stdout_data.decode('utf-8'))
+                try:
+                    response_data = json.loads(stdout_data.decode('utf-8'))
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse MCP server response as JSON: {e}")
+                    response_data = {
+                        "error": "Invalid JSON response from MCP server",
+                        "raw_output": stdout_data.decode('utf-8', errors='replace')
+                    }
             else:
                 response_data = {"error": "No response from MCP server"}
             

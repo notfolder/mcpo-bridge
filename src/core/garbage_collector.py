@@ -81,9 +81,17 @@ class GarbageCollector:
             path_resolved = path.resolve()
             jobs_dir_resolved = self.jobs_dir.resolve()
             
-            if not str(path_resolved).startswith(str(jobs_dir_resolved)):
-                logger.error(f"Attempted to delete path outside jobs directory: {path}")
-                return
+            # より堅牢なパス検証（is_relative_to使用、Python 3.9+）
+            try:
+                # Python 3.9+
+                if not path_resolved.is_relative_to(jobs_dir_resolved):
+                    logger.error(f"Attempted to delete path outside jobs directory: {path}")
+                    return
+            except AttributeError:
+                # Python 3.8フォールバック
+                if not str(path_resolved).startswith(str(jobs_dir_resolved)):
+                    logger.error(f"Attempted to delete path outside jobs directory: {path}")
+                    return
             
             # シンボリックリンクでないことを確認
             if path.is_symlink():

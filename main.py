@@ -15,6 +15,7 @@ from src.core.config import settings
 from src.api import health, mcp, mcpo
 from src.core.process_manager import process_manager
 from src.core.garbage_collector import garbage_collector
+from src.version import VERSION
 
 # ロギング設定
 logging.basicConfig(
@@ -83,7 +84,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="MCPO On-Demand Bridge",
     description="MCP/MCPOプロトコル対応のファイル生成系MCPサーバーブリッジ",
-    version="1.0.0",
+    version=VERSION,
     lifespan=lifespan
 )
 
@@ -109,7 +110,7 @@ async def root():
     """
     return {
         "service": "MCPO On-Demand Bridge",
-        "version": "1.0.0",
+        "version": VERSION,
         "status": "running"
     }
 
