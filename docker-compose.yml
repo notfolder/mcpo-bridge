@@ -1,0 +1,79 @@
+version: '3.8'
+
+services:
+  # Nginx Load Balancer & File Server
+  nginx:
+    container_name: nginx
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./data/mcpo-jobs:/tmp/mcpo-jobs:ro
+    networks:
+      - mcpo-network
+    depends_on:
+      - mcpo-bridge
+    restart: unless-stopped
+
+  # OpenWebUI Service
+  openwebui:
+    container_name: openwebui
+    image: ghcr.io/open-webui/open-webui:main
+    volumes:
+      - openwebui-data:/app/backend/data
+    environment:
+      - OPENAI_API_BASE=http://nginx/mcp
+      - WEBUI_AUTH=false
+    networks:
+      - mcpo-network
+    depends_on:
+      mcpo-bridge:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # MCPO Bridge Service (Multiple Replicas)
+  mcpo-bridge:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./data/mcpo-jobs:/tmp/mcpo-jobs
+      - ./data/mcpo-logs:/var/log/mcpo
+    environment:
+      - MCPO_BASE_URL=http://nginx
+      - MCPO_CONFIG_FILE=/app/config/mcp-servers.json
+      - MCPO_JOBS_DIR=/tmp/mcpo-jobs
+      - MCPO_FILE_EXPIRY=3600
+      - MCPO_MAX_CONCURRENT=16
+      - MCPO_TIMEOUT=300
+      - MCPO_LOG_LEVEL=INFO
+      # Stateful mode configuration
+      - MCPO_STATEFUL_ENABLED=true
+      - MCPO_STATEFUL_DEFAULT_IDLE_TIMEOUT=1800
+      - MCPO_STATEFUL_MAX_PROCESSES_PER_IP=1
+      - MCPO_STATEFUL_MAX_TOTAL_PROCESSES=100
+      - MCPO_STATEFUL_CLEANUP_INTERVAL=300
+    networks:
+      - mcpo-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      replicas: 3
+      restart_policy:
+        condition: any
+    restart: unless-stopped
+
+volumes:
+  openwebui-data:
+    driver: local
+
+networks:
+  mcpo-network:
+    driver: bridge
