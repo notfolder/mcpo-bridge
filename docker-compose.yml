@@ -22,6 +22,8 @@ services:
   openwebui:
     container_name: openwebui
     image: ghcr.io/open-webui/open-webui:main
+    ports:
+      - "3000:8080"
     volumes:
       - openwebui-data:/app/backend/data
     environment:
@@ -49,7 +51,7 @@ services:
       - MCPO_FILE_EXPIRY=3600
       - MCPO_MAX_CONCURRENT=16
       - MCPO_TIMEOUT=300
-      - MCPO_LOG_LEVEL=INFO
+      - MCPO_LOG_LEVEL=DEBUG
       # Stateful mode configuration
       - MCPO_STATEFUL_ENABLED=true
       - MCPO_STATEFUL_DEFAULT_IDLE_TIMEOUT=1800

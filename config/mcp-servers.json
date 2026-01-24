@@ -1,14 +1,13 @@
 {
   "mcpServers": {
     "powerpoint": {
-      "command": "npx",
+      "command": "uvx",
       "args": [
-        "-y",
-        "@gongrzhe/office-powerpoint-mcp-server"
+        "--from",
+        "office-powerpoint-mcp-server",
+        "ppt_mcp_server"
       ],
-      "env": {
-        "NODE_ENV": "production"
-      },
+      "env": {},
       "mode": "stateful",
       "idle_timeout": 1800,
       "max_processes_per_ip": 1

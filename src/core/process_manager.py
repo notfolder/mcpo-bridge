@@ -302,6 +302,8 @@ class ProcessManager:
         cmd = [command] + args
         
         logger.info(f"Starting process: {' '.join(cmd)}")
+        logger.info(f"Working directory: {job_dir}")
+        logger.info(f"Environment variables: {env_vars}")
         
         # プロセスを起動
         process = subprocess.Popen(
@@ -312,6 +314,19 @@ class ProcessManager:
             env=env,
             cwd=str(job_dir)
         )
+        
+        # プロセスが即座に終了していないか確認
+        import time
+        time.sleep(0.1)  # 100ms待機
+        if process.poll() is not None:
+            # プロセスが既に終了している場合、stderrを読んでログ出力
+            try:
+                _, stderr = process.communicate(timeout=1)
+                stderr_text = stderr.decode('utf-8', errors='replace')
+                logger.error(f"Process exited immediately with code {process.returncode}")
+                logger.error(f"stderr: {stderr_text}")
+            except Exception as e:
+                logger.error(f"Failed to read stderr: {e}")
         
         return process
     
@@ -337,28 +352,63 @@ class ProcessManager:
         request_bytes = request_json.encode('utf-8')
         
         try:
-            # 標準入力にリクエストを書き込み、標準出力からレスポンスを読み込む
-            stdout_data, stderr_data = await self._communicate_sync(process, request_bytes, timeout)
-            
-            # 終了コードを取得（非同期）
+            # 標準入力にリクエストを書き込み
             loop = asyncio.get_event_loop()
-            # プロセスが既に終了している場合は即座に終了コードを取得
-            exit_code = await loop.run_in_executor(None, process.wait)
+            await asyncio.wait_for(
+                loop.run_in_executor(None, process.stdin.write, request_bytes),
+                timeout=5
+            )
+            await asyncio.wait_for(
+                loop.run_in_executor(None, process.stdin.flush),
+                timeout=5
+            )
+            
+            # 標準出力から1行（JSON-RPCレスポンス）を読み込む
+            stdout_line = await asyncio.wait_for(
+                loop.run_in_executor(None, process.stdout.readline),
+                timeout=timeout
+            )
+            
+            # stderrを非ブロッキングで読み込む（あれば）
+            stderr_data = b""
+            # ここでは stderr は読まないようにする（ブロックする可能性があるため）
+            
+            # プロセスが終了したかチェック
+            exit_code = process.poll()
+            if exit_code is None:
+                exit_code = 0  # まだ実行中
+            
+            logger.debug(f"Process status: exit_code={exit_code}, still_running={exit_code is None or exit_code == 0}")
             
             # レスポンスをパース
-            if stdout_data:
+            if stdout_line:
                 try:
-                    response_data = json.loads(stdout_data.decode('utf-8'))
+                    response_data = json.loads(stdout_line.decode('utf-8'))
                 except json.JSONDecodeError as e:
                     logger.error(f"Failed to parse MCP server response as JSON: {e}")
+                    # JSON-RPC エラーレスポンス形式で返す
                     response_data = {
-                        "error": "Invalid JSON response from MCP server",
-                        "raw_output": stdout_data.decode('utf-8', errors='replace')
+                        "jsonrpc": "2.0",
+                        "error": {
+                            "code": -32700,
+                            "message": "Parse error",
+                            "data": stdout_line.decode('utf-8', errors='replace')[:500]
+                        },
+                        "id": request_data.get("id")
                     }
             else:
-                response_data = {"error": "No response from MCP server"}
+                # JSON-RPC エラーレスポンス形式で返す
+                response_data = {
+                    "jsonrpc": "2.0",
+                    "error": {
+                        "code": -32603,
+                        "message": "Internal error",
+                        "data": "No response from MCP server"
+                    },
+                    "id": request_data.get("id")
+                }
             
-            return response_data, exit_code
+            return response_data, exit_code if exit_code is not None else 0
         
         except asyncio.TimeoutError:
             logger.error(f"Process timeout after {timeout} seconds")
