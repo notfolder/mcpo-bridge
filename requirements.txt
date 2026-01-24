@@ -1,0 +1,17 @@
+# Web Framework
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+python-multipart==0.0.18
+
+# Data validation
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# Async file I/O
+aiofiles==23.2.1
+
+# HTTP client
+httpx==0.26.0
+
+# Process management
+psutil==5.9.7
