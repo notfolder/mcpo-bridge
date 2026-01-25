@@ -136,6 +136,10 @@ class ProcessManager:
         ステートレスモードでリクエストを実行
         1リクエスト = 1プロセス
         
+        MCPプロトコルの初期化シーケンスを自動処理:
+        - initialize/notifications/initialized以外のリクエストの場合、
+          自動的にinitialize → initialized を送信してからユーザーリクエストを処理
+        
         Args:
             server_type: MCPサーバータイプ
             server_config: サーバー設定
@@ -152,7 +156,43 @@ class ProcessManager:
             process = await self._start_process(server_config, job_dir)
             
             try:
-                # リクエストを送信してレスポンスを受信
+                # リクエストのメソッドを取得
+                method = request_data.get("method", "")
+                
+                # initialize/notifications/initialized 以外のリクエストの場合、自動初期化を実行
+                if method not in ["initialize", "notifications/initialized"]:
+                    logger.debug(f"Auto-initializing MCP process for method: {method}")
+                    
+                    # 1. initialize リクエストを送信
+                    init_request = {
+                        "jsonrpc": "2.0",
+                        "id": 0,
+                        "method": "initialize",
+                        "params": {
+                            "protocolVersion": "2025-11-25",
+                            "capabilities": {},
+                            "clientInfo": {
+                                "name": "mcpo-bridge",
+                                "version": "1.0.0"
+                            }
+                        }
+                    }
+                    init_response, _ = await self._communicate(
+                        process, init_request, settings.timeout
+                    )
+                    logger.debug(f"Auto-initialize response: {init_response}")
+                    
+                    # 2. notifications/initialized を送信
+                    initialized_notification = {
+                        "jsonrpc": "2.0",
+                        "method": "notifications/initialized"
+                    }
+                    await self._communicate(
+                        process, initialized_notification, settings.timeout
+                    )
+                    logger.debug("Auto-initialized notification sent")
+                
+                # 3. ユーザーの実際のリクエストを送信してレスポンスを受信
                 response_data, exit_code = await self._communicate(
                     process, request_data, settings.timeout
                 )
@@ -312,7 +352,20 @@ class ProcessManager:
         
         # 環境変数を構築
         env = os.environ.copy()
-        env.update(env_vars)
+        
+        # プレースホルダを実際の値に置換
+        # {MCPO_WORKDIR} → 実際のジョブディレクトリパス
+        # {MCPO_JOB_ID} → ジョブID
+        resolved_env_vars = {}
+        for key, value in env_vars.items():
+            if isinstance(value, str):
+                resolved_value = value.replace("{MCPO_WORKDIR}", str(job_dir))
+                resolved_value = resolved_value.replace("{MCPO_JOB_ID}", job_dir.name)
+                resolved_env_vars[key] = resolved_value
+            else:
+                resolved_env_vars[key] = value
+        
+        env.update(resolved_env_vars)
         env["MCPO_WORKDIR"] = str(job_dir)
         env["MCPO_JOB_ID"] = job_dir.name
         
