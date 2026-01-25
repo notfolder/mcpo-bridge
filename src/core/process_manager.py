@@ -26,13 +26,13 @@ class StatefulProcessInfo:
         self,
         process: subprocess.Popen,
         server_type: str,
-        client_ip: str,
+        session_key: str,
         idle_timeout: int,
         working_dir: Path
     ):
         self.process = process
         self.server_type = server_type
-        self.client_ip = client_ip
+        self.session_key = session_key  # セッションキー（ユーザーID:チャットID または IPアドレス）
         self.created_at = datetime.now(timezone.utc)
         self.last_access = datetime.now(timezone.utc)
         self.request_count = 0
@@ -84,7 +84,7 @@ class ProcessManager:
         """初期化"""
         self.semaphore = asyncio.Semaphore(settings.max_concurrent)
         
-        # ステートフルプロセスプール: {server_type: {client_ip: StatefulProcessInfo}}
+        # ステートフルプロセスプール: {server_type: {session_key: StatefulProcessInfo}}
         self.stateful_processes: Dict[str, Dict[str, StatefulProcessInfo]] = {}
         self.stateful_lock = asyncio.Lock()
     
@@ -93,7 +93,7 @@ class ProcessManager:
         server_type: str,
         request_data: dict,
         job_dir: Path,
-        client_ip: Optional[str] = None
+        session_key: Optional[str] = None
     ) -> Tuple[dict, int, Path]:
         """
         MCPリクエストを実行
@@ -103,7 +103,7 @@ class ProcessManager:
             server_type: MCPサーバータイプ
             request_data: リクエストデータ
             job_dir: ジョブディレクトリ
-            client_ip: クライアントIPアドレス
+            session_key: セッションキー（ユーザーID:チャットID または IPアドレス）
         
         Returns:
             (レスポンスデータ, 終了コード, 実際のワーキングディレクトリ) のタプル
@@ -116,9 +116,9 @@ class ProcessManager:
         # ステートフルモードかチェック
         is_stateful = settings.stateful_enabled and mcp_config.is_stateful(server_type)
         
-        if is_stateful and client_ip:
+        if is_stateful and session_key:
             return await self._execute_stateful(
-                server_type, server_config, request_data, job_dir, client_ip
+                server_type, server_config, request_data, job_dir, session_key
             )
         else:
             return await self._execute_stateless(
@@ -172,18 +172,18 @@ class ProcessManager:
         server_config: dict,
         request_data: dict,
         job_dir: Path,
-        client_ip: str
+        session_key: str
     ) -> Tuple[dict, int, Path]:
         """
         ステートフルモードでリクエストを実行
-        IPアドレスごとにプロセスを維持
+        セッションキーごとにプロセスを維持
         
         Args:
             server_type: MCPサーバータイプ
             server_config: サーバー設定
             request_data: リクエストデータ
             job_dir: ジョブディレクトリ
-            client_ip: クライアントIPアドレス
+            session_key: セッションキー（ユーザーID:チャットID または IPアドレス）
         
         Returns:
             (レスポンスデータ, 終了コード, 実際のワーキングディレクトリ) のタプル
@@ -191,11 +191,11 @@ class ProcessManager:
         async with self.stateful_lock:
             # プロセスプールからプロセスを取得または作成
             process_info = await self._get_or_create_stateful_process(
-                server_type, server_config, job_dir, client_ip
+                server_type, server_config, job_dir, session_key
             )
         
         if not process_info:
-            raise RuntimeError(f"Failed to get or create stateful process for {client_ip}")
+            raise RuntimeError(f"Failed to get or create stateful process for {session_key}")
         
         # 同一プロセスへのリクエストを直列化
         async with process_info.request_lock:
@@ -218,9 +218,9 @@ class ProcessManager:
             
             except Exception as e:
                 # エラー時はプロセスを削除
-                logger.error(f"Error in stateful process for {client_ip}: {e}")
+                logger.error(f"Error in stateful process for {session_key}: {e}")
                 async with self.stateful_lock:
-                    await self._remove_stateful_process(server_type, client_ip)
+                    await self._remove_stateful_process(server_type, session_key)
                 raise
     
     async def _get_or_create_stateful_process(
@@ -228,7 +228,7 @@ class ProcessManager:
         server_type: str,
         server_config: dict,
         job_dir: Path,
-        client_ip: str
+        session_key: str
     ) -> Optional[StatefulProcessInfo]:
         """
         ステートフルプロセスを取得または作成
@@ -237,7 +237,7 @@ class ProcessManager:
             server_type: MCPサーバータイプ
             server_config: サーバー設定
             job_dir: ジョブディレクトリ
-            client_ip: クライアントIPアドレス
+            session_key: セッションキー（ユーザーID:チャットID または IPアドレス）
         
         Returns:
             StatefulProcessInfoオブジェクト
@@ -247,49 +247,49 @@ class ProcessManager:
             self.stateful_processes[server_type] = {}
         
         # 既存プロセスをチェック
-        if client_ip in self.stateful_processes[server_type]:
-            process_info = self.stateful_processes[server_type][client_ip]
+        if session_key in self.stateful_processes[server_type]:
+            process_info = self.stateful_processes[server_type][session_key]
             
             # 健全性チェック
             if process_info.is_healthy():
-                logger.info(f"Reusing stateful process for {client_ip}")
+                logger.info(f"Reusing stateful process for {session_key}")
                 return process_info
             else:
                 # 不健全な場合は削除
-                logger.warning(f"Removing unhealthy stateful process for {client_ip}")
-                await self._remove_stateful_process(server_type, client_ip)
+                logger.warning(f"Removing unhealthy stateful process for {session_key}")
+                await self._remove_stateful_process(server_type, session_key)
         
         # 新規プロセスを起動
-        logger.info(f"Creating new stateful process for {client_ip}")
+        logger.info(f"Creating new stateful process for {session_key}")
         idle_timeout = mcp_config.get_idle_timeout(server_type)
         process = await self._start_process(server_config, job_dir)
         
         process_info = StatefulProcessInfo(
             process=process,
             server_type=server_type,
-            client_ip=client_ip,
+            session_key=session_key,
             idle_timeout=idle_timeout,
             working_dir=job_dir  # 実際のワーキングディレクトリを記録
         )
         
-        self.stateful_processes[server_type][client_ip] = process_info
-        logger.info(f"Stateful process created with working_dir: {job_dir}")
+        self.stateful_processes[server_type][session_key] = process_info
+        logger.info(f"Stateful process created for {session_key} with working_dir: {job_dir}")
         return process_info
     
-    async def _remove_stateful_process(self, server_type: str, client_ip: str):
+    async def _remove_stateful_process(self, server_type: str, session_key: str):
         """
         ステートフルプロセスを削除
         
         Args:
             server_type: MCPサーバータイプ
-            client_ip: クライアントIPアドレス
+            session_key: セッションキー（ユーザーID:チャットID または IPアドレス）
         """
         if server_type in self.stateful_processes:
-            if client_ip in self.stateful_processes[server_type]:
-                process_info = self.stateful_processes[server_type][client_ip]
+            if session_key in self.stateful_processes[server_type]:
+                process_info = self.stateful_processes[server_type][session_key]
                 await self._terminate_process(process_info.process)
-                del self.stateful_processes[server_type][client_ip]
-                logger.info(f"Removed stateful process for {client_ip}")
+                del self.stateful_processes[server_type][session_key]
+                logger.info(f"Removed stateful process for {session_key}")
     
     async def _start_process(
         self,
@@ -590,15 +590,15 @@ class ProcessManager:
         """
         async with self.stateful_lock:
             for server_type in list(self.stateful_processes.keys()):
-                for client_ip in list(self.stateful_processes[server_type].keys()):
-                    process_info = self.stateful_processes[server_type][client_ip]
+                for session_key in list(self.stateful_processes[server_type].keys()):
+                    process_info = self.stateful_processes[server_type][session_key]
                     
                     if process_info.is_idle_timeout():
                         logger.info(
-                            f"Cleaning up idle process for {client_ip} "
+                            f"Cleaning up idle process for {session_key} "
                             f"(idle for {(datetime.now(timezone.utc) - process_info.last_access).total_seconds()}s)"
                         )
-                        await self._remove_stateful_process(server_type, client_ip)
+                        await self._remove_stateful_process(server_type, session_key)
     
     async def shutdown(self):
         """
@@ -615,12 +615,12 @@ class ProcessManager:
                 logger.info(f"Terminating {total_processes} stateful processes...")
                 
                 for server_type in list(self.stateful_processes.keys()):
-                    for client_ip in list(self.stateful_processes[server_type].keys()):
+                    for session_key in list(self.stateful_processes[server_type].keys()):
                         try:
-                            await self._remove_stateful_process(server_type, client_ip)
+                            await self._remove_stateful_process(server_type, session_key)
                         except Exception as e:
                             logger.error(
-                                f"Error removing process for {server_type}/{client_ip}: {e}"
+                                f"Error removing process for {server_type}/{session_key}: {e}"
                             )
             
             logger.info("Process manager shut down complete")

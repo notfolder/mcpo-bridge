@@ -98,9 +98,30 @@ async def process_mcp_request(
     """
     # ファイルパスフィールド名を取得
     file_path_fields = mcp_config.get_file_path_fields(server_type)
-    # クライアントIPを抽出
+    
+    # セッションキーを決定（ヘッダー情報優先、フォールバックとしてIPアドレス）
+    session_key = None
     client_ip = extract_client_ip(request)
-    logger.info(f"{protocol_name} request from {client_ip} for server type: {server_type}")
+    
+    if settings.enable_forward_user_info_headers:
+        # Open WebUI ヘッダーからユーザーIDを取得
+        user_id = request.headers.get("X-OpenWebUI-User-Id")
+        chat_id = request.headers.get("X-OpenWebUI-Chat-Id")
+        
+        if user_id:
+            # ユーザーIDとチャットIDを組み合わせてセッションキーを作成
+            # チャットIDがある場合はチャット単位、ない場合はユーザー単位でセッション管理
+            session_key = f"user:{user_id}"
+            if chat_id:
+                session_key = f"{session_key}:chat:{chat_id}"
+            logger.debug(f"Using session key from headers: {session_key}")
+    
+    # ヘッダー情報がない場合はIPアドレスを使用
+    if not session_key:
+        session_key = f"ip:{client_ip}"
+        logger.debug(f"Using session key from IP address: {session_key}")
+    
+    logger.info(f"{protocol_name} request from {client_ip} (session: {session_key}) for server type: {server_type}")
     
     # サーバータイプの存在確認
     if not mcp_config.get_server_config(server_type):
@@ -132,7 +153,7 @@ async def process_mcp_request(
             server_type=server_type,
             request_data=request_data,
             job_dir=job_dir,
-            client_ip=client_ip if settings.stateful_enabled else None
+            session_key=session_key if settings.stateful_enabled else None
         )
         
         # 実際のワーキングディレクトリのjob_idを取得(statefulモード対応)

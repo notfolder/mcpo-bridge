@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     stateful_max_total_processes: int = 100
     stateful_cleanup_interval: int = 300
     
+    # Open WebUI ヘッダー転送設定
+    enable_forward_user_info_headers: bool = True
+    
     class Config:
         env_prefix = "MCPO_"
         case_sensitive = False
