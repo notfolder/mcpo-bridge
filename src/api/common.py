@@ -195,29 +195,32 @@ async def process_mcp_request(
     # ファイルパスフィールド名を取得
     file_path_fields = mcp_config.get_file_path_fields(server_type)
     
-    # セッションキーを決定（ヘッダー情報優先、フォールバックとしてIPアドレス）
+    # セッションキーをヘッダー情報から決定
+    # Open WebUI ヘッダーからユーザーIDとチャットIDを取得
+    user_id = request.headers.get("X-OpenWebUI-User-Id")
+    chat_id = request.headers.get("X-OpenWebUI-Chat-Id")
+    
+    # セッションキーを構築（Chat ID優先、フォールバックとしてUser ID）
     session_key = None
-    client_ip = extract_client_ip(request)
-    
-    if settings.enable_forward_user_info_headers:
-        # Open WebUI ヘッダーからユーザーIDを取得
-        user_id = request.headers.get("X-OpenWebUI-User-Id")
-        chat_id = request.headers.get("X-OpenWebUI-Chat-Id")
-        
+    if chat_id:
+        # Chat ID単位でセッション管理（最も細かい粒度）
+        session_key = f"chat:{chat_id}"
         if user_id:
-            # ユーザーIDとチャットIDを組み合わせてセッションキーを作成
-            # チャットIDがある場合はチャット単位、ない場合はユーザー単位でセッション管理
-            session_key = f"user:{user_id}"
-            if chat_id:
-                session_key = f"{session_key}:chat:{chat_id}"
-            logger.debug(f"Using session key from headers: {session_key}")
+            session_key = f"user:{user_id}:{session_key}"
+        logger.debug(f"Using chat-based session key: {session_key}")
+    elif user_id:
+        # User ID単位でセッション管理（Chat IDがない場合のフォールバック）
+        session_key = f"user:{user_id}"
+        logger.debug(f"Using user-based session key: {session_key}")
+    else:
+        # ヘッダー情報がない場合はエラー
+        logger.error("No session identification headers found (X-OpenWebUI-User-Id or X-OpenWebUI-Chat-Id)")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing session identification headers. Please ensure X-OpenWebUI-User-Id or X-OpenWebUI-Chat-Id header is set."
+        )
     
-    # ヘッダー情報がない場合はIPアドレスを使用
-    if not session_key:
-        session_key = f"ip:{client_ip}"
-        logger.debug(f"Using session key from IP address: {session_key}")
-    
-    logger.info(f"{protocol_name} request from {client_ip} (session: {session_key}) for server type: {server_type}")
+    logger.info(f"{protocol_name} request for session: {session_key}, server type: {server_type}")
     
     # サーバータイプの存在確認
     if not mcp_config.get_server_config(server_type):

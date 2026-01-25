@@ -56,7 +56,7 @@ class JobManager:
         metadata = JobMetadata(
             job_id=job_id,
             server_type=server_type,
-            client_ip=client_ip
+            session_key=session_key
         )
         
         # メタデータを保存
