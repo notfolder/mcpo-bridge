@@ -142,6 +142,24 @@ class MCPServerConfig:
         if not config:
             return settings.stateful_max_processes_per_ip
         return config.get("max_processes_per_ip", settings.stateful_max_processes_per_ip)
+    
+    def get_file_path_fields(self, server_type: str) -> List[str]:
+        """
+        指定されたサーバータイプのファイルパスフィールド名リストを取得
+        
+        レスポンスに含まれるファイルパス情報のフィールド名を指定する。
+        これらのフィールドに対して自動的にダウンロードURLが追加される。
+        
+        Args:
+            server_type: サーバータイプ名
+        
+        Returns:
+            ファイルパスフィールド名のリスト（デフォルト: ["file_path"]）
+        """
+        config = self.get_server_config(server_type)
+        if not config:
+            return ["file_path"]
+        return config.get("file_path_fields", ["file_path"])
 
 
 # グローバル設定インスタンス

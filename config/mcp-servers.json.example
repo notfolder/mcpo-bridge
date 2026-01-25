@@ -11,7 +11,8 @@
       },
       "mode": "stateful",
       "idle_timeout": 1800,
-      "max_processes_per_ip": 1
+      "max_processes_per_ip": 1,
+      "file_path_fields": ["file_path", "saved_path"]
     },
     "excel": {
       "command": "uvx",
@@ -19,7 +20,8 @@
         "excel-mcp-server",
         "stdio"
       ],
-      "mode": "stateless"
+      "mode": "stateless",
+      "file_path_fields": ["output_file", "file_path"]
     }
   }
 }

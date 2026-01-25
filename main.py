@@ -121,5 +121,6 @@ if __name__ == "__main__":
         "main:app",
         host="0.0.0.0",
         port=8080,
-        log_level=settings.log_level.lower()
+        log_level=settings.log_level.lower(),
+        timeout_graceful_shutdown=20  # グレースフルシャットダウンのタイムアウト（秒）
     )

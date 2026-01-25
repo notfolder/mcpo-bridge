@@ -5,6 +5,9 @@ MCP/MCPOエンドポイントの共通処理ロジック
 """
 import asyncio
 import logging
+import os
+from pathlib import Path
+from typing import Any
 from fastapi import Request, HTTPException, status
 
 from src.core.job_manager import job_manager
@@ -14,6 +17,53 @@ from src.models.job import JobStatus
 from src.utils.network import extract_client_ip
 
 logger = logging.getLogger(__name__)
+
+
+def _add_download_urls(
+    data: Any, 
+    job_id: str, 
+    base_url: str,
+    file_path_fields: list[str]
+) -> Any:
+    """
+    レスポンスデータ内の指定されたフィールドに対してダウンロードURLを追加する
+    
+    相対パスのファイルはジョブディレクトリに保存されるため、
+    自動的にダウンロードURLを生成して_download_urlフィールドとして追加する。
+    
+    Args:
+        data: レスポンスデータ（dict, list, または他の型）
+        job_id: ジョブID
+        base_url: ベースURL（例: http://nginx）
+        file_path_fields: ファイルパス情報を含むフィールド名のリスト
+    
+    Returns:
+        ダウンロードURL情報が追加されたデータ
+    """
+    if isinstance(data, dict):
+        # 設定されたファイルパスフィールドをチェック
+        for field_name in file_path_fields:
+            if field_name in data:
+                file_path = data[field_name]
+                
+                # 相対パスの場合のみダウンロードURLを追加
+                if file_path and isinstance(file_path, str) and not os.path.isabs(file_path):
+                    # ファイル名を抽出
+                    filename = Path(file_path).name
+                    # ダウンロードURLを生成
+                    download_url = f"{base_url}/files/{job_id}/{filename}"
+                    data["_download_url"] = download_url
+                    logger.debug(f"Added download URL for {field_name}={file_path}: {download_url}")
+        
+        # ネストされた辞書も再帰的に処理
+        for key, value in data.items():
+            data[key] = _add_download_urls(value, job_id, base_url, file_path_fields)
+    
+    elif isinstance(data, list):
+        # リスト内の各要素を再帰的に処理
+        data = [_add_download_urls(item, job_id, base_url, file_path_fields) for item in data]
+    
+    return data
 
 
 async def process_mcp_request(
@@ -32,6 +82,8 @@ async def process_mcp_request(
     Returns:
         MCPサーバーからのレスポンス（JSON）
     """
+    # ファイルパスフィールド名を取得
+    file_path_fields = mcp_config.get_file_path_fields(server_type)
     # クライアントIPを抽出
     client_ip = extract_client_ip(request)
     logger.info(f"{protocol_name} request from {client_ip} for server type: {server_type}")
@@ -85,7 +137,15 @@ async def process_mcp_request(
                 f"Process exited with code {exit_code}"
             )
         
-        # レスポンスをそのまま返却
+        # レスポンスにダウンロードURLを追加（設定されたファイルパスフィールドが含まれている場合）
+        response_data = _add_download_urls(
+            response_data, 
+            job_id, 
+            settings.base_url,
+            file_path_fields
+        )
+        
+        # レスポンスを返却
         return response_data
     
     except asyncio.TimeoutError:
