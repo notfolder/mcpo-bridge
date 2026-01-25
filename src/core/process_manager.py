@@ -354,6 +354,38 @@ class ProcessManager:
         idle_timeout = mcp_config.get_idle_timeout(server_type)
         process = await self._start_process(server_config, job_dir)
         
+        # MCPプロトコルの初期化シーケンスを実行
+        logger.debug(f"Initializing MCP process for {session_key}")
+        
+        # 1. initialize リクエストを送信
+        init_request = {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+                "clientInfo": {
+                    "name": "mcpo-bridge",
+                    "version": "1.0.0"
+                }
+            }
+        }
+        init_response, _ = await self._communicate(
+            process, init_request, settings.timeout
+        )
+        logger.debug(f"Initialize response for {session_key}: {init_response}")
+        
+        # 2. notifications/initialized を送信
+        initialized_notification = {
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized"
+        }
+        await self._communicate(
+            process, initialized_notification, settings.timeout
+        )
+        logger.debug(f"Initialized notification sent for {session_key}")
+        
         process_info = StatefulProcessInfo(
             process=process,
             server_type=server_type,
@@ -363,7 +395,7 @@ class ProcessManager:
         )
         
         self.stateful_processes[server_type][session_key] = process_info
-        logger.info(f"Stateful process created for {session_key} with working_dir: {job_dir}")
+        logger.info(f"Stateful process created and initialized for {session_key} with working_dir: {job_dir}")
         return process_info
     
     async def _remove_stateful_process(self, server_type: str, session_key: str):
