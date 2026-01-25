@@ -464,7 +464,7 @@ class ProcessManager:
     
     async def _terminate_process(self, process: subprocess.Popen):
         """
-        プロセスを終了
+        プロセスを終了（非同期版）
         
         Args:
             process: Popenオブジェクト
@@ -472,18 +472,30 @@ class ProcessManager:
         if process.poll() is None:
             try:
                 # まずSIGTERMを送信
+                logger.debug(f"Sending SIGTERM to process {process.pid}")
                 process.terminate()
                 
-                # 10秒待機
+                # 非同期で10秒待機
                 try:
-                    process.wait(timeout=10)
-                except subprocess.TimeoutExpired:
+                    await asyncio.wait_for(
+                        asyncio.to_thread(process.wait),
+                        timeout=10.0
+                    )
+                    logger.debug(f"Process {process.pid} terminated gracefully")
+                except asyncio.TimeoutError:
                     # まだ終了していなければSIGKILLを送信
-                    logger.warning("Process did not terminate, sending SIGKILL")
+                    logger.warning(f"Process {process.pid} did not terminate, sending SIGKILL")
                     process.kill()
-                    process.wait(timeout=5)
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.to_thread(process.wait),
+                            timeout=5.0
+                        )
+                        logger.debug(f"Process {process.pid} killed")
+                    except asyncio.TimeoutError:
+                        logger.error(f"Process {process.pid} could not be killed")
             except Exception as e:
-                logger.error(f"Error terminating process: {e}")
+                logger.error(f"Error terminating process {process.pid}: {e}")
     
     async def start_cleanup_task(self):
         """
@@ -519,16 +531,30 @@ class ProcessManager:
     
     async def shutdown(self):
         """
-        全プロセスを終了してシャットダウン
+        全プロセスを終了してシャットダウン（タイムアウト付き）
         """
         logger.info("Shutting down process manager...")
         
-        async with self.stateful_lock:
-            for server_type in list(self.stateful_processes.keys()):
-                for client_ip in list(self.stateful_processes[server_type].keys()):
-                    await self._remove_stateful_process(server_type, client_ip)
-        
-        logger.info("Process manager shut down complete")
+        try:
+            async with self.stateful_lock:
+                total_processes = sum(
+                    len(clients) 
+                    for clients in self.stateful_processes.values()
+                )
+                logger.info(f"Terminating {total_processes} stateful processes...")
+                
+                for server_type in list(self.stateful_processes.keys()):
+                    for client_ip in list(self.stateful_processes[server_type].keys()):
+                        try:
+                            await self._remove_stateful_process(server_type, client_ip)
+                        except Exception as e:
+                            logger.error(
+                                f"Error removing process for {server_type}/{client_ip}: {e}"
+                            )
+            
+            logger.info("Process manager shut down complete")
+        except Exception as e:
+            logger.error(f"Error during process manager shutdown: {e}")
 
 
 # グローバルプロセスマネージャーインスタンス
