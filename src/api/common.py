@@ -19,6 +19,62 @@ from src.utils.network import extract_client_ip
 logger = logging.getLogger(__name__)
 
 
+def _convert_mcp_to_openai_format(mcp_response: dict, files: list[dict]) -> dict:
+    """
+    MCPレスポンスをOpenAI互換形式に変換
+    
+    Args:
+        mcp_response: MCPサーバーからのレスポンス（既にファイル情報が追加されている）
+        files: ファイル情報のリスト
+    
+    Returns:
+        OpenAI互換形式のレスポンス
+    """
+    # MCPレスポンスからテキストコンテンツを抽出
+    result_text = ""
+    
+    if isinstance(mcp_response, dict):
+        # MCP標準形式: {"jsonrpc": "2.0", "id": 1, "result": {"content": [...]}}
+        if "result" in mcp_response:
+            result = mcp_response["result"]
+            
+            if isinstance(result, dict) and "content" in result:
+                # contentフィールドから全てのテキストを結合
+                # ファイル情報は既に_extract_file_infoで追加されている
+                content_list = result["content"]
+                if isinstance(content_list, list):
+                    text_parts = []
+                    for item in content_list:
+                        if isinstance(item, dict) and item.get("type") == "text":
+                            text_parts.append(item.get("text", ""))
+                    result_text = "\n".join(text_parts)
+            elif isinstance(result, str):
+                # resultが文字列の場合はそのまま使用
+                result_text = result
+            else:
+                # その他の場合はJSON文字列化
+                import json
+                result_text = json.dumps(result, ensure_ascii=False, indent=2)
+        
+        # エラーレスポンスの場合
+        elif "error" in mcp_response:
+            error = mcp_response["error"]
+            if isinstance(error, dict):
+                result_text = f"Error: {error.get('message', 'Unknown error')}"
+            else:
+                result_text = f"Error: {error}"
+    
+    # 結果がない場合は成功メッセージ
+    if not result_text:
+        result_text = "操作が正常に完了しました。"
+    
+    # OpenAI互換形式で返却
+    # ファイル情報は既にresult_textに含まれている（_extract_file_infoで追加済み）
+    return {
+        "result": result_text
+    }
+
+
 def _extract_file_info(
     data: Any, 
     job_id: str, 
@@ -256,7 +312,13 @@ async def process_mcp_request(
                         }
                     ]
         
-        # レスポンスを返却
+        # MCPOプロトコルの場合はOpenAI互換形式に変換
+        if protocol_name == "MCPO":
+            openai_response = _convert_mcp_to_openai_format(response_data, files)
+            logger.debug(f"Converted to OpenAI format: {openai_response}")
+            return openai_response
+        
+        # MCP形式のまま返却（従来の動作）
         return response_data
     
     except asyncio.TimeoutError:

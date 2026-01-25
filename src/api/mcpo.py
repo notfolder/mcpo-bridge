@@ -229,24 +229,49 @@ async def get_openapi_spec_root(server_type: str, request: Request):
     return await _generate_openapi_spec(server_type, request)
 
 
-@router.post("/{server_type}")
-async def mcpo_endpoint(server_type: str, request: Request):
+@router.post("/{server_type}/{tool_name}")
+async def mcpo_tool_endpoint(server_type: str, tool_name: str, request: Request):
     """
-    MCPOエンドポイント
+    MCPOツールエンドポイント
     
-    MCPOプロトコルのリクエストを受け付け、対応するMCPサーバーに転送
-    レスポンスはそのまま返却（変更なし）
+    OpenWebUIからのツール呼び出しを受け付け、MCP JSON-RPC形式に変換してMCPサーバーに転送
     
     Args:
         server_type: MCPサーバータイプ（例: "powerpoint"）
+        tool_name: ツール名（例: "create_presentation"）
         request: FastAPIリクエストオブジェクト
     
     Returns:
-        MCPサーバーからのレスポンス（JSON）
+        OpenAI互換形式のレスポンス（JSON）
     """
-    # リクエストボディを取得してログ出力
-    body = await request.json()
-    logger.info(f"[ENDPOINT] POST /{server_type} called")
-    logger.info(f"[ENDPOINT] Request body: {body}")
+    # リクエストボディ（ツールパラメータ）を取得
+    params = await request.json()
+    logger.info(f"[ENDPOINT] POST /{server_type}/{tool_name} called")
+    logger.info(f"[ENDPOINT] Tool parameters: {params}")
     
-    return await process_mcp_request(server_type, request, "MCPO")
+    # MCP JSON-RPC形式にリクエストを構築
+    mcp_request = {
+        "jsonrpc": "2.0",
+        "method": "tools/call",
+        "params": {
+            "name": tool_name,
+            "arguments": params
+        },
+        "id": 1
+    }
+    
+    # process_mcp_requestに渡す前に、requestオブジェクトのボディを置き換え
+    # FastAPIのRequestオブジェクトは変更不可なので、新しいJSONを返すモックを作る
+    class MockRequest:
+        def __init__(self, original_request, new_body):
+            self._original = original_request
+            self._body = new_body
+            self.headers = original_request.headers
+            self.client = original_request.client
+        
+        async def json(self):
+            return self._body
+    
+    mock_request = MockRequest(request, mcp_request)
+    
+    return await process_mcp_request(server_type, mock_request, "MCPO")
