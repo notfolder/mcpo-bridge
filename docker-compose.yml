@@ -27,6 +27,8 @@ services:
     environment:
       - OPENAI_API_BASE=http://nginx/mcpo
       - WEBUI_AUTH=false
+      # ユーザー情報ヘッダーの転送を有効化
+      - ENABLE_FORWARD_USER_INFO_HEADERS=true
     networks:
       - mcpo-network
     depends_on:

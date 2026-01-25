@@ -137,7 +137,7 @@ Nginxコンポーネントは以下の責務を持つ：
 **統一ip_hashアルゴリズム：**
 
 - アルゴリズム：ip_hash（全リクエストに適用）
-- クライアントIPベースのスティッキーセッション：同一IPからのリクエストは常に同一Bridgeインスタンスへルーティング
+- チャットIDベースのセッション管理：同一チャットIDからのリクエストは常に同一セッションで処理
 - ヘルスチェック：/health エンドポイントを定期的にチェック
 - フェイルオーバー：unhealthyなインスタンスを自動除外
 - セッションアフィニティ：全サーバータイプで有効
@@ -239,7 +239,7 @@ BridgeはClaude等で使用されるMCPサーバー設定JSON形式を使用す�
 - env：環境変数のキーバリューマップ（オプショナル）
 - mode：実行モード（"stateful" / "stateless"、オプショナル、デフォルト: "stateless"）
 - idle_timeout：アイドルタイムアウト秒数（オプショナル、modeが"stateful"の場合のみ有効、デフォルト: 1800）
-- max_processes_per_ip：IPアドレスごとの最大プロセス数（オプショナル、modeが"stateful"の場合のみ有効、デフォルト: 1）
+- max_processes_per_chat：チャットごとの最大プロセス数（オプショナル、modeが"stateful"の場合のみ有効、デフォルト: 1）
 
 ##### 設定ファイルの配置
 
@@ -578,7 +578,7 @@ MCPサーバーからのレスポンスをそのまま返却：
 
 - MCPO_STATEFUL_ENABLED：ステートフル機能の有効化（デフォルト：true）
 - MCPO_STATEFUL_DEFAULT_IDLE_TIMEOUT：デフォルトアイドルタイムアウト秒数（デフォルト：1800）
-- MCPO_STATEFUL_MAX_PROCESSES_PER_IP：IPごとの最大プロセス数（デフォルト：1）
+- MCPO_STATEFUL_MAX_PROCESSES_PER_CHAT：チャットごとの最大プロセス数（デフォルト：1）
 - MCPO_STATEFUL_MAX_TOTAL_PROCESSES：全体の最大プロセス数（デフォルト：100）
 - MCPO_STATEFUL_CLEANUP_INTERVAL：クリーンアップ間隔秒数（デフォルト：300）
 
@@ -1154,7 +1154,7 @@ Node.js製PowerPointサーバーとPython製Excelサーバーを同時に使用�
 
 - mcpo-bridgeサービスの全レプリカを自動検出
 - Docker DNSによる名前解決
-- ip_hashアルゴリズム（クライアントIPベースのスティッキーセッション）
+- ip_hashアルゴリズム（チャットIDベースのセッション管理）
 - 詳細：セクション19.7「Nginx設定変更」を参照
 
 #### ヘルスチェック
@@ -1347,7 +1347,7 @@ Node.js製PowerPointサーバーとPython製Excelサーバーを同時に使用�
 
 #### 採用方式
 
-**クライアントIPアドレスベースのセッション管理：**
+**チャットIDベースのセッション管理：**
 - Nginxの`ip_hash`ディレクティブで同一IPを同一Bridgeインスタンスへルーティング
 - Bridge側でIPアドレスごとにプロセスプールを管理
 - アイドルタイムアウトで自動プロセス終了
@@ -1388,7 +1388,7 @@ MCPO Bridge Instance (例: instance-1)
 - 引数：-y、@gongrzhe/office-powerpoint-mcp-server
 - モード：stateful（ステートフル）
 - アイドルタイムアウト：1800秒（30分）
-- IPアドレスごとの最大プロセス数：1
+- チャットごとの最大プロセス数：1
 
 **excelサーバーの設定例：**
 - コマンド：uvx
@@ -1401,7 +1401,7 @@ MCPO Bridge Instance (例: instance-1)
 |---|---|---|---|---|
 | mode | string | No | "stateless" | "stateful" または "stateless" |
 | idle_timeout | integer | No | 1800 | アイドルタイムアウト秒数（30分） |
-| max_processes_per_ip | integer | No | 1 | IPアドレスごとの最大プロセス数 |
+| max_processes_per_chat | integer | No | 1 | チャットごとの最大プロセス数 |
 
 **mode="stateful"の動作：**
 - プロセスはリクエスト後も終了せず待機状態を維持
@@ -1590,8 +1590,8 @@ MCPO Bridge Instance (例: instance-1)
 - 型：整数
 - デフォルト値：1800（30分）
 
-**MCPO_STATEFUL_MAX_PROCESSES_PER_IP:**
-- 説明：クライアントIPアドレスごとの最大プロセス数
+**MCPO_STATEFUL_MAX_PROCESSES_PER_CHAT:**
+- 説明：クライアントチャットごとの最大プロセス数
 - 型：整数
 - デフォルト値：1
 
@@ -1610,7 +1610,7 @@ MCPO Bridge Instance (例: instance-1)
 **mcpo-bridgeサービスの環境変数設定：**
 - MCPO_STATEFUL_ENABLEDをtrueに設定
 - MCPO_STATEFUL_DEFAULT_IDLE_TIMEOUTを1800に設定
-- MCPO_STATEFUL_MAX_PROCESSES_PER_IPを1に設定
+- MCPO_STATEFUL_MAX_PROCESSES_PER_CHATを1に設定
 - MCPO_STATEFUL_MAX_TOTAL_PROCESSESを100に設定
 - MCPO_STATEFUL_CLEANUP_INTERVALを300に設定
 
@@ -1795,7 +1795,7 @@ MCPO Bridge Instance (例: instance-1)
 
 **パフォーマンスチューニング：**
 - `idle_timeout`の調整（頻繁な利用: 短く、散発的な利用: 長く）
-- `max_processes_per_ip`の調整（同時操作が必要な場合は増加）
+- `max_processes_per_chat`の調整（同時操作が必要な場合は増加）
 - Bridge replicasの増加（ただしip_hashの制限あり）
 
 **MCPO On-Demand Bridge 詳細設計書 v4.0**

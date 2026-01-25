@@ -10,7 +10,6 @@ from src.api.common import process_mcp_request
 from src.core.config import mcp_config, settings
 from src.core.process_manager import process_manager
 from src.core.job_manager import job_manager
-from src.utils.network import extract_client_ip
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -37,9 +36,17 @@ async def _generate_openapi_spec(server_type: str, request: Request):
             detail=f"Unknown server type: {server_type}"
         )
     
-    # クライアント情報を取得
-    client_ip = extract_client_ip(request)
-    session_key = f"ip:{client_ip}"
+    # セッション情報を取得(OpenAPI仕様書取得時はセッション不要だが、
+    # 将来的な拡張のため一貫性を保つ)
+    user_id = request.headers.get("X-OpenWebUI-User-Id")
+    chat_id = request.headers.get("X-OpenWebUI-Chat-Id")
+    session_key = None
+    if chat_id:
+        session_key = f"chat:{chat_id}"
+        if user_id:
+            session_key = f"user:{user_id}:{session_key}"
+    elif user_id:
+        session_key = f"user:{user_id}"
     
     # tools/listリクエストを作成
     # 注: MCP protocolではparamsフィールドが必須（空でもOK）
@@ -50,8 +57,8 @@ async def _generate_openapi_spec(server_type: str, request: Request):
         "id": 1
     }
     
-    # 一時的なジョブIDを作成
-    job_id, job_dir = job_manager.create_job(server_type, client_ip)
+    # 一時的なジョブIDを作成(OpenAPI仕様書生成用)
+    job_id, job_dir = job_manager.create_job(server_type, session_key)
     
     try:
         # MCPサーバーからツール一覧を取得

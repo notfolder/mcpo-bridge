@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     # ステートフル設定
     stateful_enabled: bool = True
     stateful_default_idle_timeout: int = 1800
-    stateful_max_processes_per_ip: int = 1
+    stateful_max_processes_per_chat: int = 1
     stateful_max_total_processes: int = 100
     stateful_cleanup_interval: int = 300
     
@@ -131,20 +131,20 @@ class MCPServerConfig:
             return settings.stateful_default_idle_timeout
         return config.get("idle_timeout", settings.stateful_default_idle_timeout)
     
-    def get_max_processes_per_ip(self, server_type: str) -> int:
+    def get_max_processes_per_chat(self, server_type: str) -> int:
         """
-        指定されたサーバータイプのIPごとの最大プロセス数を取得
+        指定されたサーバータイプのチャットごとの最大プロセス数を取得
         
         Args:
             server_type: サーバータイプ名
         
         Returns:
-            IPごとの最大プロセス数
+            チャットごとの最大プロセス数
         """
         config = self.get_server_config(server_type)
         if not config:
-            return settings.stateful_max_processes_per_ip
-        return config.get("max_processes_per_ip", settings.stateful_max_processes_per_ip)
+            return settings.stateful_max_processes_per_chat
+        return config.get("max_processes_per_chat", settings.stateful_max_processes_per_chat)
     
     def get_file_path_fields(self, server_type: str) -> List[str]:
         """

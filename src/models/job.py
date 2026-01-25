@@ -28,7 +28,7 @@ class JobMetadata(BaseModel):
     request: Optional[Dict[str, Any]] = Field(None, description="受信したMCPリクエスト")
     response: Optional[Dict[str, Any]] = Field(None, description="MCPサーバーレスポンス")
     error: Optional[str] = Field(None, description="エラーメッセージ（失敗時のみ）")
-    client_ip: Optional[str] = Field(None, description="クライアントIPアドレス")
+    session_key: Optional[str] = Field(None, description="セッションキー(user:xxx:chat:yyyまたはuser:xxx形式)")
 
 
 class HealthResponse(BaseModel):
@@ -76,7 +76,7 @@ class ProcessInfo(BaseModel):
     """
     process_id: int = Field(..., description="プロセスID")
     server_type: str = Field(..., description="MCPサーバータイプ")
-    client_ip: str = Field(..., description="クライアントIPアドレス")
+    session_key: Optional[str] = Field(None, description="セッションキー(user:xxx:chat:yyyまたはuser:xxx形式)")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="プロセス作成日時")
     last_access: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="最終アクセス日時")
     request_count: int = Field(default=0, description="処理したリクエスト数")

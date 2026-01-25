@@ -19,7 +19,7 @@
 | モード | 説明 | 適用例 | 動作 |
 |--------|------|--------|------|
 | **Stateless** | リクエスト毎にプロセス起動・終了 | Excel、単発生成ツール | 1リクエスト = 1プロセス、即座に終了 |
-| **Stateful** | IPアドレスごとにプロセス維持 | PowerPoint（複数スライド追加等） | セッション維持、アイドルタイムアウト後終了 |
+| **Stateful** | チャットごとにプロセス維持 | PowerPoint（複数スライド追加等） | セッション維持、アイドルタイムアウト後終了 |
 
 設定は `config/mcp-servers.json` の `mode` パラメータで制御します。
 
@@ -239,7 +239,7 @@ OpenWebUIのシステムプロンプトで、AIモデルに対してファイル
       },
       "mode": "stateful",
       "idle_timeout": 1800,
-      "max_processes_per_ip": 1
+      "max_processes_per_chat": 1
     }
   }
 }

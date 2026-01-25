@@ -14,7 +14,6 @@ from src.core.job_manager import job_manager
 from src.core.process_manager import process_manager
 from src.core.config import mcp_config, settings
 from src.models.job import JobStatus
-from src.utils.network import extract_client_ip
 
 logger = logging.getLogger(__name__)
 
@@ -239,7 +238,7 @@ async def process_mcp_request(
         )
     
     # ジョブを作成
-    job_id, job_dir = job_manager.create_job(server_type, client_ip)
+    job_id, job_dir = job_manager.create_job(server_type, session_key)
     
     try:
         # リクエストを保存

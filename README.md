@@ -278,7 +278,7 @@ docker-compose.ymlで以下の環境変数を設定できます:
 | MCPO_LOG_LEVEL | INFO | ログレベル |
 | MCPO_STATEFUL_ENABLED | true | ステートフル機能の有効化 |
 | MCPO_STATEFUL_DEFAULT_IDLE_TIMEOUT | 1800 | ステートフルプロセスのデフォルトアイドルタイムアウト（秒） |
-| MCPO_STATEFUL_MAX_PROCESSES_PER_IP | 1 | クライアントIPごとの最大プロセス数 |
+| MCPO_STATEFUL_MAX_PROCESSES_PER_CHAT | 1 | クライアントチャットごとの最大プロセス数 |
 | MCPO_STATEFUL_MAX_TOTAL_PROCESSES | 100 | 全体の最大ステートフルプロセス数 |
 | MCPO_STATEFUL_CLEANUP_INTERVAL | 300 | ステートフルプロセスのクリーンアップ間隔（秒） |
 
@@ -316,7 +316,7 @@ docker-compose.ymlで以下の環境変数を設定できます:
       "args": ["-y", "@gongrzhe/office-powerpoint-mcp-server"],
       "mode": "stateful",
       "idle_timeout": 1800,
-      "max_processes_per_ip": 1,
+      "max_processes_per_chat": 1,
       "session_persistence": true
     },
     "excel": {
@@ -324,7 +324,7 @@ docker-compose.ymlで以下の環境変数を設定できます:
       "args": ["excel-mcp-server", "stdio"],
       "mode": "stateful",
       "idle_timeout": 3600,
-      "max_processes_per_ip": 1,
+      "max_processes_per_chat": 1,
       "session_persistence": true
     }
   }

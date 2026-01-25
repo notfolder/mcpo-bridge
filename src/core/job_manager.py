@@ -34,13 +34,13 @@ class JobManager:
         self.jobs_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"Jobs directory ensured: {self.jobs_dir}")
     
-    def create_job(self, server_type: str, client_ip: Optional[str] = None) -> Tuple[str, Path]:
+    def create_job(self, server_type: str, session_key: Optional[str] = None) -> Tuple[str, Path]:
         """
         新しいジョブを作成
         
         Args:
             server_type: MCPサーバータイプ
-            client_ip: クライアントIPアドレス
+            session_key: セッションキー(user:xxx:chat:yyyまたはuser:xxx形式)
         
         Returns:
             (job_id, job_dir) のタプル
