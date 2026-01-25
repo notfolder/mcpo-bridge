@@ -9,9 +9,10 @@
       ],
       "env": {},
       "mode": "stateful",
-      "idle_timeout": 1800,
+      "idle_timeout": 3600,
       "max_processes_per_ip": 1,
-      "file_path_fields": ["file_path", "saved_path"]
+      "session_persistence": true,
+      "file_path_fields": ["file_path", "saved_path", "template_path"]
     },
     "excel": {
       "command": "uvx",

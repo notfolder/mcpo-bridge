@@ -19,17 +19,14 @@ from src.utils.network import extract_client_ip
 logger = logging.getLogger(__name__)
 
 
-def _add_download_urls(
+def _extract_file_info(
     data: Any, 
     job_id: str, 
     base_url: str,
     file_path_fields: list[str]
-) -> Any:
+) -> tuple[Any, list[dict]]:
     """
-    レスポンスデータ内の指定されたフィールドに対してダウンロードURLを追加する
-    
-    相対パスのファイルはジョブディレクトリに保存されるため、
-    自動的にダウンロードURLを生成して_download_urlフィールドとして追加する。
+    レスポンスデータからファイル情報を抽出してOpen WebUI形式に変換
     
     Args:
         data: レスポンスデータ（dict, list, または他の型）
@@ -38,32 +35,49 @@ def _add_download_urls(
         file_path_fields: ファイルパス情報を含むフィールド名のリスト
     
     Returns:
-        ダウンロードURL情報が追加されたデータ
+        (ダウンロードURL情報が追加されたデータ, ファイル情報のリスト)
     """
-    if isinstance(data, dict):
-        # 設定されたファイルパスフィールドをチェック
-        for field_name in file_path_fields:
-            if field_name in data:
-                file_path = data[field_name]
-                
-                # 相対パスの場合のみダウンロードURLを追加
-                if file_path and isinstance(file_path, str) and not os.path.isabs(file_path):
-                    # ファイル名を抽出
-                    filename = Path(file_path).name
-                    # ダウンロードURLを生成
-                    download_url = f"{base_url}/files/{job_id}/{filename}"
-                    data["_download_url"] = download_url
-                    logger.debug(f"Added download URL for {field_name}={file_path}: {download_url}")
+    files = []
+    
+    def process_data(data: Any) -> Any:
+        nonlocal files
         
-        # ネストされた辞書も再帰的に処理
-        for key, value in data.items():
-            data[key] = _add_download_urls(value, job_id, base_url, file_path_fields)
+        if isinstance(data, dict):
+            # 設定されたファイルパスフィールドをチェック
+            for field_name in file_path_fields:
+                if field_name in data:
+                    file_path = data[field_name]
+                    
+                    # 相対パスの場合のみダウンロードURLを追加
+                    if file_path and isinstance(file_path, str) and not os.path.isabs(file_path):
+                        # ファイル名を抽出
+                        filename = Path(file_path).name
+                        # ダウンロードURLを生成
+                        download_url = f"{base_url}/files/{job_id}/{filename}"
+                        
+                        # Open WebUI形式のファイル情報を追加
+                        files.append({
+                            "type": "file",
+                            "url": download_url,
+                            "name": filename
+                        })
+                        
+                        # 後方互換性のため_download_urlも追加
+                        data["_download_url"] = download_url
+                        logger.debug(f"Added file info for {field_name}={file_path}: {download_url}")
+            
+            # ネストされた辞書も再帰的に処理
+            for key, value in data.items():
+                data[key] = process_data(value)
+        
+        elif isinstance(data, list):
+            # リスト内の各要素を再帰的に処理
+            data = [process_data(item) for item in data]
+        
+        return data
     
-    elif isinstance(data, list):
-        # リスト内の各要素を再帰的に処理
-        data = [_add_download_urls(item, job_id, base_url, file_path_fields) for item in data]
-    
-    return data
+    processed_data = process_data(data)
+    return processed_data, files
 
 
 async def process_mcp_request(
@@ -137,13 +151,53 @@ async def process_mcp_request(
                 f"Process exited with code {exit_code}"
             )
         
-        # レスポンスにダウンロードURLを追加（設定されたファイルパスフィールドが含まれている場合）
-        response_data = _add_download_urls(
+        # レスポンスにダウンロードURLとファイル情報を追加
+        response_data, files = _extract_file_info(
             response_data, 
             job_id, 
             settings.base_url,
             file_path_fields
         )
+        
+        # Open WebUI形式: contentにfilesフィールドとダウンロード案内を追加
+        if files and isinstance(response_data, dict):
+            if "result" in response_data:
+                # MCPツール応答の場合
+                if "content" in response_data["result"]:
+                    # contentが既に存在する場合
+                    if isinstance(response_data["result"]["content"], list):
+                        # ダウンロード案内メッセージを先頭のテキストに追加
+                        for item in response_data["result"]["content"]:
+                            if item.get("type") == "text" and "text" in item:
+                                # 既存のテキストにダウンロードリンク情報を追加
+                                download_links = "\n\n" + "\n".join([
+                                    f"📎 ダウンロード: [{f['name']}]({f['url']})" 
+                                    for f in files
+                                ])
+                                item["text"] += download_links
+                                break
+                        
+                        # filesフィールドも追加
+                        response_data["result"]["content"].append({
+                            "type": "files",
+                            "files": files
+                        })
+                else:
+                    # contentがない場合は作成
+                    download_text = "\n".join([
+                        f"📎 ダウンロード: [{f['name']}]({f['url']})" 
+                        for f in files
+                    ])
+                    response_data["result"]["content"] = [
+                        {
+                            "type": "text",
+                            "text": download_text
+                        },
+                        {
+                            "type": "files",
+                            "files": files
+                        }
+                    ]
         
         # レスポンスを返却
         return response_data

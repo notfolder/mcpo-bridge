@@ -3,13 +3,13 @@
 ## PowerPoint MCP Server
 
 ```
-PowerPointプレゼンテーション生成（Stateful/30分セッション維持）。必須: create_presentationでpresentation_idを取得→全操作で実際の値を使用（{{変数}}禁止）→save_presentation後に_download_urlをユーザーに提示（file_path提示禁止）。段階的編集可能。
+【重要】PowerPointファイル作成は必ずこのツールを使用。【必須手順】1)create_presentation呼出→レスポンスのresult.presentation_idを抽出して記憶（例:"presentation_1"）、2)そのpresentation_idを使ってadd_slide/create_slide_from_template等でスライド追加（presentation_idパラメータに実際の値のみ使用、{{変数}}や省略禁止）、3)save_presentation呼出（file_path="example.pptx", presentation_id="presentation_1"）→レスポンスのresult.content[0].textに「📎 ダウンロード: [example.pptx](http://...)」形式のリンクが自動追加される→そのtextをそのままユーザーへ提示（追加の編集不要）。【禁止事項】auto_generate_presentation使用（セッションエラー発生）、presentation_idの省略/null指定、textからURLを手動抽出して再フォーマット、python-pptxコード提案、Base64提案、「ファイルを作成しますか？」等の確認。
 ```
 
 ## Excel MCP Server
 
 ```
-Excelファイル生成・編集。主要ツール: create_workbook（新規作成）, write_data_to_excel（データ書込）, read_data_from_excel（データ読取）, format_range（書式設定）, apply_formula（数式）, create_chart（グラフ）, create_pivot_table（ピボット）, create_table（テーブル）。必須: 実行後_download_url提示（filepath提示禁止）。
+【重要】Excelファイル作成は必ずこのツールを使用。create_workbook/write_data_to_excel/format_range等を呼出→ツールが自動的にダウンロードリンクを応答に含める（ユーザーがクリック可能）。【絶対禁止】openpyxlコード提案、pandasコード提案、CSV提案、Base64提案、Googleドライブ提案、filepath提示、「ファイルを作成しますか？」等の確認、URLの手動提示（ツールが自動生成）。
 ```
 
 ---
