@@ -160,6 +160,23 @@ class MCPServerConfig:
         if not config:
             return ["file_path"]
         return config.get("file_path_fields", ["file_path"])
+    
+    def get_usage_guide(self, server_type: str) -> Optional[str]:
+        """
+        指定されたサーバータイプの使用方法ガイドを取得
+        
+        tools/listレスポンスに追加するダミーツールのdescriptionとして使用される。
+        
+        Args:
+            server_type: サーバータイプ名
+        
+        Returns:
+            使用方法ガイド文字列、設定されていない場合はNone
+        """
+        config = self.get_server_config(server_type)
+        if not config:
+            return None
+        return config.get("usage_guide")
 
 
 # グローバル設定インスタンス

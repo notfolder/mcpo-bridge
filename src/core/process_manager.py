@@ -120,11 +120,12 @@ class ProcessManager:
             )
         else:
             return await self._execute_stateless(
-                server_config, request_data, job_dir
+                server_type, server_config, request_data, job_dir
             )
     
     async def _execute_stateless(
         self,
+        server_type: str,
         server_config: dict,
         request_data: dict,
         job_dir: Path
@@ -134,6 +135,7 @@ class ProcessManager:
         1リクエスト = 1プロセス
         
         Args:
+            server_type: MCPサーバータイプ
             server_config: サーバー設定
             request_data: リクエストデータ
             job_dir: ジョブディレクトリ
@@ -152,6 +154,10 @@ class ProcessManager:
                 response_data, exit_code = await self._communicate(
                     process, request_data, settings.timeout
                 )
+                
+                # tools/listレスポンスの場合、使用方法ガイドツールを追加
+                response_data = self._add_usage_guide_tool(server_type, request_data, response_data)
+                
                 return response_data, exit_code
             
             finally:
@@ -196,6 +202,9 @@ class ProcessManager:
                 response_data, exit_code = await self._communicate(
                     process_info.process, request_data, settings.timeout
                 )
+                
+                # tools/listレスポンスの場合、使用方法ガイドツールを追加server_type, 
+                response_data = self._add_usage_guide_tool(request_data, response_data)
                 
                 # プロセス情報を更新
                 async with self.stateful_lock:
@@ -496,6 +505,63 @@ class ProcessManager:
                         logger.error(f"Process {process.pid} could not be killed")
             except Exception as e:
                 logger.error(f"Error terminating process {process.pid}: {e}")
+    
+    def _add_usage_guide_tool(self, server_type: str, request_data: dict, response_data: dict) -> dict:
+        """
+        tools/listレスポンスに使用方法ガイドのダミーツールを追加
+        
+        Args:
+            server_type: MCPサーバータイプ
+            request_data: リクエストデータ
+            response_data: レスポンスデータ
+        
+        Returns:
+            ガイドツール追加後のレスポンスデータ
+        """
+        # tools/listリクエストかチェック
+        if request_data.get("method") != "tools/list":
+            return response_data
+        
+        # レスポンスが正常な形式かチェック
+        if not isinstance(response_data, dict):
+            return response_data
+        
+        if "result" not in response_data or not isinstance(response_data["result"], dict):
+            return response_data
+        
+        if "tools" not in response_data["result"] or not isinstance(response_data["result"]["tools"], list):
+            return response_data
+        
+        # サーバー設定から使用方法ガイドを取得
+        usage_guide_text = mcp_config.get_usage_guide(server_type)
+        
+        # 使用方法ガイドが設定されていない場合はスキップ
+        if not usage_guide_text:
+            logger.debug(f"No usage guide configured for server type: {server_type}")
+            return response_data
+        
+        # 使用方法ガイドのダミーツールを作成
+        usage_guide_tool = {
+            "name": "📖_usage_instructions",
+            "description": usage_guide_text,
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "_note": {
+                        "type": "string",
+                        "description": "This is a documentation tool and cannot be executed"
+                    }
+                },
+                "required": []
+            }
+        }
+        
+        # ツールリストの先頭に追加（最初に表示されるように）
+        response_data["result"]["tools"].insert(0, usage_guide_tool)
+        
+        logger.info(f"Added usage guide tool to tools/list response for {server_type} ({len(response_data['result']['tools'])} tools total)")
+        
+        return response_data
     
     async def start_cleanup_task(self):
         """
