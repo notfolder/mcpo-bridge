@@ -5,11 +5,12 @@
 """
 import time
 from datetime import datetime, timezone
-from fastapi import APIRouter
+from fastapi import APIRouter, BackgroundTasks
 
 from src.models.job import HealthResponse
 from src.core.process_manager import process_manager
 from src.core.config import settings
+from src.core.garbage_collector import garbage_collector
 from src.version import VERSION
 
 router = APIRouter()
@@ -19,13 +20,20 @@ _start_time = time.time()
 
 
 @router.get("/health", response_model=HealthResponse)
-async def health_check():
+async def health_check(background_tasks: BackgroundTasks):
     """
     ヘルスチェックエンドポイント
+    バックグラウンドでガベージコレクションも実行する
+    
+    Args:
+        background_tasks: FastAPIのバックグラウンドタスク
     
     Returns:
         HealthResponse: ヘルスチェック結果
     """
+    # バックグラウンドでガベージコレクションを実行
+    background_tasks.add_task(garbage_collector.cleanup_old_jobs)
+    
     # 稼働時間を計算
     uptime = time.time() - _start_time
     
