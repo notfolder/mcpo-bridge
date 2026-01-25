@@ -166,16 +166,15 @@ async def process_mcp_request(
                 if "content" in response_data["result"]:
                     # contentが既に存在する場合
                     if isinstance(response_data["result"]["content"], list):
-                        # ダウンロード案内メッセージを先頭のテキストに追加
-                        for item in response_data["result"]["content"]:
-                            if item.get("type") == "text" and "text" in item:
-                                # 既存のテキストにダウンロードリンク情報を追加
-                                download_links = "\n\n" + "\n".join([
-                                    f"📎 ダウンロード: [{f['name']}]({f['url']})" 
-                                    for f in files
-                                ])
-                                item["text"] += download_links
-                                break
+                        # ダウンロードリンクを新しいテキスト要素として追加
+                        download_text = "\n\n" + "\n".join([
+                            f"📎 ダウンロード: [{f['name']}]({f['url']})" 
+                            for f in files
+                        ])
+                        response_data["result"]["content"].append({
+                            "type": "text",
+                            "text": download_text
+                        })
                         
                         # filesフィールドも追加
                         response_data["result"]["content"].append({

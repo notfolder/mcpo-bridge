@@ -101,10 +101,10 @@ async def lifespan(app: FastAPI):
     # 全プロセスの終了（タイムアウト付き）
     logger.info("Shutting down all MCP processes...")
     try:
-        await asyncio.wait_for(process_manager.shutdown(), timeout=30.0)
+        await asyncio.wait_for(process_manager.shutdown(), timeout=5.0)
         logger.info("All processes shut down successfully")
     except asyncio.TimeoutError:
-        logger.warning("Process shutdown timed out after 30 seconds")
+        logger.warning("Process shutdown timed out after 5 seconds")
     
     logger.info("MCPO Bridge shut down successfully")
 
@@ -151,5 +151,5 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=8080,
         log_level=settings.log_level.lower(),
-        timeout_graceful_shutdown=50  # グレースフルシャットダウンのタイムアウト（秒）
+        timeout_graceful_shutdown=10  # グレースフルシャットダウンのタイムアウト（秒）
     )

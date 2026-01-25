@@ -203,8 +203,8 @@ class ProcessManager:
                     process_info.process, request_data, settings.timeout
                 )
                 
-                # tools/listレスポンスの場合、使用方法ガイドツールを追加server_type, 
-                response_data = self._add_usage_guide_tool(request_data, response_data)
+                # tools/listレスポンスの場合、使用方法ガイドツールを追加
+                response_data = self._add_usage_guide_tool(server_type, request_data, response_data)
                 
                 # プロセス情報を更新
                 async with self.stateful_lock:
@@ -484,11 +484,11 @@ class ProcessManager:
                 logger.debug(f"Sending SIGTERM to process {process.pid}")
                 process.terminate()
                 
-                # 非同期で10秒待機
+                # 非同期で3秒待機
                 try:
                     await asyncio.wait_for(
                         asyncio.to_thread(process.wait),
-                        timeout=10.0
+                        timeout=3.0
                     )
                     logger.debug(f"Process {process.pid} terminated gracefully")
                 except asyncio.TimeoutError:
@@ -498,7 +498,7 @@ class ProcessManager:
                     try:
                         await asyncio.wait_for(
                             asyncio.to_thread(process.wait),
-                            timeout=5.0
+                            timeout=2.0
                         )
                         logger.debug(f"Process {process.pid} killed")
                     except asyncio.TimeoutError:
