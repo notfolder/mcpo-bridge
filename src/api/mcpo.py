@@ -230,11 +230,9 @@ async def get_openapi_spec_root(server_type: str, request: Request):
 
 
 @router.post("/{server_type}/{tool_name}")
-async def mcpo_tool_endpoint(server_type: str, tool_name: str, request: Request):
+async def mcpo_tool_endpoint_with_path(server_type: str, tool_name: str, request: Request):
     """
-    MCPOツールエンドポイント
-    
-    OpenWebUIからのツール呼び出しを受け付け、MCP JSON-RPC形式に変換してMCPサーバーに転送
+    MCPOツールエンドポイント（パスパラメータ版）
     
     Args:
         server_type: MCPサーバータイプ（例: "powerpoint"）
@@ -244,11 +242,62 @@ async def mcpo_tool_endpoint(server_type: str, tool_name: str, request: Request)
     Returns:
         OpenAI互換形式のレスポンス（JSON）
     """
-    # リクエストボディ（ツールパラメータ）を取得
     params = await request.json()
     logger.info(f"[ENDPOINT] POST /{server_type}/{tool_name} called")
     logger.info(f"[ENDPOINT] Tool parameters: {params}")
     
+    return await _handle_mcpo_tool_call(server_type, tool_name, params, request)
+
+
+@router.post("/{server_type}")
+async def mcpo_tool_endpoint_legacy(server_type: str, request: Request):
+    """
+    MCPOツールエンドポイント（レガシー版 - OpenWebUI互換）
+    
+    OpenWebUIがリクエストボディに_tool_nameを含めて送信する場合に対応
+    
+    Args:
+        server_type: MCPサーバータイプ（例: "powerpoint"）
+        request: FastAPIリクエストオブジェクト
+    
+    Returns:
+        OpenAI互換形式のレスポンス（JSON）
+    """
+    body = await request.json()
+    logger.info(f"[ENDPOINT] POST /{server_type} called")
+    logger.info(f"[ENDPOINT] Request body: {body}")
+    
+    # ツール名を抽出（OpenWebUIが送る場合）
+    tool_name = body.pop("_tool_name", None)
+    
+    if not tool_name:
+        # ツール名がない場合はエラー
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing _tool_name in request body"
+        )
+    
+    return await _handle_mcpo_tool_call(server_type, tool_name, body, request)
+
+
+async def _handle_mcpo_tool_call(
+    server_type: str,
+    tool_name: str,
+    params: dict,
+    request: Request
+) -> dict:
+    """
+    MCPOツール呼び出しの共通処理
+    
+    Args:
+        server_type: MCPサーバータイプ
+        tool_name: ツール名
+        params: ツールパラメータ
+        request: FastAPIリクエストオブジェクト
+    
+    Returns:
+        OpenAI互換形式のレスポンス
+    """
     # MCP JSON-RPC形式にリクエストを構築
     mcp_request = {
         "jsonrpc": "2.0",
@@ -260,8 +309,10 @@ async def mcpo_tool_endpoint(server_type: str, tool_name: str, request: Request)
         "id": 1
     }
     
+    logger.debug(f"[MCPO] Calling tool '{tool_name}' with params: {params}")
+    logger.debug(f"[MCPO] MCP request: {mcp_request}")
+    
     # process_mcp_requestに渡す前に、requestオブジェクトのボディを置き換え
-    # FastAPIのRequestオブジェクトは変更不可なので、新しいJSONを返すモックを作る
     class MockRequest:
         def __init__(self, original_request, new_body):
             self._original = original_request
