@@ -21,6 +21,13 @@ RUN apt-get update && apt-get install -y \
 # uvのインストール（Python製MCPサーバー用、uvx経由）
 RUN pip install --no-cache-dir uv
 
+# よく使うMCPサーバーを事前にキャッシュ（初回起動時の遅延を削減）
+# uvのツールディレクトリを明示的に設定
+ENV UV_TOOL_DIR=/root/.local/share/uv/tools
+ENV UV_TOOL_BIN_DIR=/root/.local/bin
+RUN uv tool install office-powerpoint-mcp-server && \
+    ln -sf /root/.local/bin/ppt_mcp_server /usr/local/bin/ppt_mcp_server || true
+
 # Pythonの依存関係ファイルをコピー
 COPY requirements.txt .
 

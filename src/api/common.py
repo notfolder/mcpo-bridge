@@ -46,6 +46,7 @@ async def process_mcp_request(
     # リクエストボディを取得
     try:
         request_data = await request.json()
+        logger.debug(f"MCP request data: {request_data}")
     except Exception as e:
         logger.error(f"Failed to parse request JSON: {e}")
         raise HTTPException(
@@ -70,6 +71,9 @@ async def process_mcp_request(
         
         # レスポンスを保存
         job_manager.save_response(job_id, response_data)
+        
+        # レスポンスをログに出力（デバッグ用）
+        logger.debug(f"MCP response for job {job_id}: {response_data}")
         
         # ジョブステータスを更新
         if exit_code == 0:

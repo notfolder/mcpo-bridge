@@ -36,6 +36,8 @@ class StatefulProcessInfo:
         self.last_access = datetime.now(timezone.utc)
         self.request_count = 0
         self.idle_timeout = idle_timeout
+        # 同一プロセスへのリクエストを直列化するためのロック
+        self.request_lock = asyncio.Lock()
     
     def is_healthy(self) -> bool:
         """
@@ -187,25 +189,27 @@ class ProcessManager:
         if not process_info:
             raise RuntimeError(f"Failed to get or create stateful process for {client_ip}")
         
-        try:
-            # リクエストを送信してレスポンスを受信
-            response_data, exit_code = await self._communicate(
-                process_info.process, request_data, settings.timeout
-            )
+        # 同一プロセスへのリクエストを直列化
+        async with process_info.request_lock:
+            try:
+                # リクエストを送信してレスポンスを受信
+                response_data, exit_code = await self._communicate(
+                    process_info.process, request_data, settings.timeout
+                )
+                
+                # プロセス情報を更新
+                async with self.stateful_lock:
+                    process_info.last_access = datetime.now(timezone.utc)
+                    process_info.request_count += 1
+                
+                return response_data, exit_code
             
-            # プロセス情報を更新
-            async with self.stateful_lock:
-                process_info.last_access = datetime.now(timezone.utc)
-                process_info.request_count += 1
-            
-            return response_data, exit_code
-        
-        except Exception as e:
-            # エラー時はプロセスを削除
-            logger.error(f"Error in stateful process for {client_ip}: {e}")
-            async with self.stateful_lock:
-                await self._remove_stateful_process(server_type, client_ip)
-            raise
+            except Exception as e:
+                # エラー時はプロセスを削除
+                logger.error(f"Error in stateful process for {client_ip}: {e}")
+                async with self.stateful_lock:
+                    await self._remove_stateful_process(server_type, client_ip)
+                raise
     
     async def _get_or_create_stateful_process(
         self,
@@ -351,6 +355,9 @@ class ProcessManager:
         request_json = json.dumps(request_data) + "\n"
         request_bytes = request_json.encode('utf-8')
         
+        # 通知かどうかを判定（"id"フィールドがないリクエストは通知）
+        is_notification = "id" not in request_data
+        
         try:
             # 標準入力にリクエストを書き込み
             loop = asyncio.get_event_loop()
@@ -362,6 +369,17 @@ class ProcessManager:
                 loop.run_in_executor(None, process.stdin.flush),
                 timeout=5
             )
+            
+            # 通知の場合はレスポンスを待たない
+            if is_notification:
+                logger.debug(f"Sent notification: {request_data.get('method')}")
+                # プロセスが終了したかチェック
+                exit_code = process.poll()
+                if exit_code is None:
+                    exit_code = 0  # まだ実行中
+                
+                # 通知には空のレスポンスを返す
+                return {}, exit_code
             
             # 標準出力から1行（JSON-RPCレスポンス）を読み込む
             stdout_line = await asyncio.wait_for(
