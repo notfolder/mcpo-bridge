@@ -56,6 +56,8 @@ services:
       - MCPO_STATEFUL_MAX_PROCESSES_PER_IP=1
       - MCPO_STATEFUL_MAX_TOTAL_PROCESSES=100
       - MCPO_STATEFUL_CLEANUP_INTERVAL=300
+      # Header-based session management
+      - MCPO_ENABLE_FORWARD_USER_INFO_HEADERS=true
     networks:
       - mcpo-network
     healthcheck:
@@ -68,7 +70,7 @@ services:
     stop_grace_period: 15s
     init: true
     deploy:
-      replicas: 1
+      replicas: 1  # Scale to 3 replicas for load distribution
       restart_policy:
         condition: any
     restart: unless-stopped
