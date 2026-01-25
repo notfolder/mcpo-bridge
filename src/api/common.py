@@ -159,7 +159,7 @@ async def process_mcp_request(
             file_path_fields
         )
         
-        # Open WebUI形式: contentにfilesフィールドとダウンロード案内を追加
+        # Open WebUI形式: contentにダウンロード案内を追加
         if files and isinstance(response_data, dict):
             if "result" in response_data:
                 # MCPツール応答の場合
@@ -175,12 +175,6 @@ async def process_mcp_request(
                             "type": "text",
                             "text": download_text
                         })
-                        
-                        # filesフィールドも追加
-                        response_data["result"]["content"].append({
-                            "type": "files",
-                            "files": files
-                        })
                 else:
                     # contentがない場合は作成
                     download_text = "\n".join([
@@ -191,10 +185,6 @@ async def process_mcp_request(
                         {
                             "type": "text",
                             "text": download_text
-                        },
-                        {
-                            "type": "files",
-                            "files": files
                         }
                     ]
         
