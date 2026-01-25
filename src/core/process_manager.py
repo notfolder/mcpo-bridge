@@ -27,7 +27,8 @@ class StatefulProcessInfo:
         process: subprocess.Popen,
         server_type: str,
         client_ip: str,
-        idle_timeout: int
+        idle_timeout: int,
+        working_dir: Path
     ):
         self.process = process
         self.server_type = server_type
@@ -36,6 +37,7 @@ class StatefulProcessInfo:
         self.last_access = datetime.now(timezone.utc)
         self.request_count = 0
         self.idle_timeout = idle_timeout
+        self.working_dir = working_dir  # 実際のプロセスのワーキングディレクトリ
         # 同一プロセスへのリクエストを直列化するためのロック
         self.request_lock = asyncio.Lock()
     
@@ -92,7 +94,7 @@ class ProcessManager:
         request_data: dict,
         job_dir: Path,
         client_ip: Optional[str] = None
-    ) -> Tuple[dict, int]:
+    ) -> Tuple[dict, int, Path]:
         """
         MCPリクエストを実行
         ステートフル/ステートレスモードを自動判定して処理
@@ -104,7 +106,7 @@ class ProcessManager:
             client_ip: クライアントIPアドレス
         
         Returns:
-            (レスポンスデータ, 終了コード) のタプル
+            (レスポンスデータ, 終了コード, 実際のワーキングディレクトリ) のタプル
         """
         # サーバー設定を取得
         server_config = mcp_config.get_server_config(server_type)
@@ -129,7 +131,7 @@ class ProcessManager:
         server_config: dict,
         request_data: dict,
         job_dir: Path
-    ) -> Tuple[dict, int]:
+    ) -> Tuple[dict, int, Path]:
         """
         ステートレスモードでリクエストを実行
         1リクエスト = 1プロセス
@@ -141,7 +143,7 @@ class ProcessManager:
             job_dir: ジョブディレクトリ
         
         Returns:
-            (レスポンスデータ, 終了コード) のタプル
+            (レスポンスデータ, 終了コード, 実際のワーキングディレクトリ) のタプル
         """
         async with self.semaphore:
             logger.info(f"Executing stateless request in {job_dir}")
@@ -158,7 +160,7 @@ class ProcessManager:
                 # tools/listレスポンスの場合、使用方法ガイドツールを追加
                 response_data = self._add_usage_guide_tool(server_type, request_data, response_data)
                 
-                return response_data, exit_code
+                return response_data, exit_code, job_dir
             
             finally:
                 # プロセスを確実に終了
@@ -171,7 +173,7 @@ class ProcessManager:
         request_data: dict,
         job_dir: Path,
         client_ip: str
-    ) -> Tuple[dict, int]:
+    ) -> Tuple[dict, int, Path]:
         """
         ステートフルモードでリクエストを実行
         IPアドレスごとにプロセスを維持
@@ -184,7 +186,7 @@ class ProcessManager:
             client_ip: クライアントIPアドレス
         
         Returns:
-            (レスポンスデータ, 終了コード) のタプル
+            (レスポンスデータ, 終了コード, 実際のワーキングディレクトリ) のタプル
         """
         async with self.stateful_lock:
             # プロセスプールからプロセスを取得または作成
@@ -211,7 +213,8 @@ class ProcessManager:
                     process_info.last_access = datetime.now(timezone.utc)
                     process_info.request_count += 1
                 
-                return response_data, exit_code
+                # 実際のワーキングディレクトリ(最初のjob_dir)を返す
+                return response_data, exit_code, process_info.working_dir
             
             except Exception as e:
                 # エラー時はプロセスを削除
@@ -265,10 +268,12 @@ class ProcessManager:
             process=process,
             server_type=server_type,
             client_ip=client_ip,
-            idle_timeout=idle_timeout
+            idle_timeout=idle_timeout,
+            working_dir=job_dir  # 実際のワーキングディレクトリを記録
         )
         
         self.stateful_processes[server_type][client_ip] = process_info
+        logger.info(f"Stateful process created with working_dir: {job_dir}")
         return process_info
     
     async def _remove_stateful_process(self, server_type: str, client_ip: str):

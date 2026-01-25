@@ -128,18 +128,23 @@ async def process_mcp_request(
         job_manager.save_request(job_id, request_data)
         
         # MCPサーバープロセスでリクエストを実行
-        response_data, exit_code = await process_manager.execute_request(
+        response_data, exit_code, actual_job_dir = await process_manager.execute_request(
             server_type=server_type,
             request_data=request_data,
             job_dir=job_dir,
             client_ip=client_ip if settings.stateful_enabled else None
         )
         
+        # 実際のワーキングディレクトリのjob_idを取得(statefulモード対応)
+        actual_job_id = actual_job_dir.name
+        
         # レスポンスを保存
         job_manager.save_response(job_id, response_data)
         
-        # レスポンスをログに出力（デバッグ用）
+        # レスポンスをログに出力(デバッグ用)
         logger.debug(f"MCP response for job {job_id}: {response_data}")
+        if actual_job_id != job_id:
+            logger.debug(f"Stateful mode: actual working directory is {actual_job_id}")
         
         # ジョブステータスを更新
         if exit_code == 0:
@@ -152,9 +157,10 @@ async def process_mcp_request(
             )
         
         # レスポンスにダウンロードURLとファイル情報を追加
+        # statefulモードの場合は実際のjob_idを使用
         response_data, files = _extract_file_info(
             response_data, 
-            job_id, 
+            actual_job_id,  # 実際のワーキングディレクトリのjob_idを使用
             settings.base_url,
             file_path_fields
         )
