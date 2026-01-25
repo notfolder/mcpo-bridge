@@ -95,7 +95,9 @@ async def _generate_openapi_spec(server_type: str, request: Request):
             },
             "servers": [
                 {
-                    "url": f"http://localhost/mcpo/{server_type}"
+                    # OpenWebUIはTool Server設定のURLを直接使用するため、
+                    # ここではダミーのURLを設定（実際には使われない）
+                    "url": "/"
                 }
             ],
             "paths": {},
@@ -142,7 +144,11 @@ async def _generate_openapi_spec(server_type: str, request: Request):
                 logger.debug(f"[DEBUG]   Original length: {len(original_description)}")
                 logger.debug(f"[DEBUG]   New length: {len(tool_description)}")
             
-            # ツール名をパスに変換（例: "create_presentation" -> "/create_presentation"）
+            # ツール名をパスに変換
+            # OpenWebUIはTool Server設定のURL（例: http://nginx/mcpo/powerpoint）を
+            # ベースURLとして使用し、ここで定義したpathを追加する
+            # したがって、path = "/{tool_name}" とすると、
+            # 最終的なURL = http://nginx/mcpo/powerpoint/{tool_name} となる
             path = f"/{tool_name}"
             
             # OpenAPI path item定義
