@@ -118,12 +118,82 @@ docker-compose up -d
 
 4. ブラウザでOpenWebUIにアクセス:
 ```
-http://localhost:80
+http://localhost:3000
 ```
 
 **注意**: 
 - 初回起動時、Docker Composeが自動的に`./data/mcpo-jobs`と`./data/mcpo-logs`ディレクトリを作成します（gitignore対象）
 - これらのディレクトリが存在しない場合、Dockerのバインドマウント機能により自動的にホスト側に作成されます
+
+### Open WebUIでのMCPO設定
+
+docker-compose.ymlで起動した場合、Open WebUIは自動的にMCPOブリッジに接続されます。以下の設定が自動的に適用されています：
+
+```yaml
+environment:
+  - OPENAI_API_BASE=http://nginx/mcp
+```
+
+**注意**: エンドポイントは`/mcp`です（`/mcpo`ではありません）
+- `/mcp/{server-type}`: MCP標準プロトコル用（Open WebUI向け） ← これを使用
+- `/mcpo/{server-type}`: MCPOプロトコル（JSON-RPC 2.0）用
+
+この設定により、Open WebUIは`http://nginx/mcp`をMCPエンドポイントとして使用します。
+
+#### 手動でOpen WebUIを設定する場合
+
+既存のOpen WebUI環境でMCPOブリッジを使用する場合、以下の手順で設定してください：
+
+1. **Open WebUIの管理画面にアクセス**
+   - 設定（Settings）→ 接続（Connections）を開く
+
+2. **OpenAI API設定を追加**
+   - **API Base URL**: `http://nginx/mcp`（Docker Compose環境内から）
+   - または `http://localhost/mcp`（ホストから直接アクセスする場合）
+   - **重要**: `/mcp`を使用します（`/mcpo`ではありません）
+   
+3. **MCPサーバータイプの指定**
+   - MCPOブリッジは複数のサーバータイプをサポートします
+   - エンドポイント形式: `/mcp/{server-type}`
+   - 例: `/mcp/powerpoint`, `/mcp/excel`
+   
+4. **利用方法**
+   - Open WebUIのチャットでMCPツールが自動的に利用可能になります
+   - 各MCPサーバーが提供するツールは、AIが適切な場面で自動的に呼び出します
+
+#### 動作確認
+
+MCPOブリッジが正しく動作しているか確認：
+
+```bash
+# ヘルスチェック
+curl http://localhost/health
+
+# レスポンス例
+{
+  "status": "ok",
+  "timestamp": "2026-01-26T00:00:00.000000+00:00",
+  "version": "0.1.0",
+  "uptime": 123.45,
+  "stateful_processes": 0
+}
+```
+
+#### トラブルシューティング
+
+**Open WebUIでツールが表示されない場合**:
+
+1. MCPO Bridgeのログを確認:
+```bash
+docker-compose logs -f mcpo-bridge
+```
+
+2. `config/mcp-servers.json`の設定を確認
+3. Open WebUIからMCPエンドポイントにアクセスできるか確認
+4. Nginxが正しくプロキシしているか確認:
+```bash
+docker-compose logs -f nginx
+```
 
 ### 停止方法
 
@@ -298,21 +368,30 @@ mcpo-bridge/
 
 ### MCP/MCPOエンドポイント（複数サーバータイプ対応）
 
-各MCPサーバータイプごとに独立したエンドポイント:
+各MCPサーバータイプごとに独立したエンドポイントを提供します。
 
-#### MCPOエンドポイント
+**重要**: MCPとMCPOは異なるプロトコルですが、本ブリッジではどちらも内部的にJSON-RPC 2.0形式でMCPサーバーと通信します。
 
-- **URL**: `http://localhost/mcpo/{server-type}`
-- 例：`/mcpo/powerpoint`
-- **メソッド**: POST
-- **形式**: JSON-RPC 2.0
-
-#### MCPエンドポイント
+#### MCPエンドポイント（Open WebUI向け）
 
 - **URL**: `http://localhost/mcp/{server-type}`
-- 例：`/mcp/powerpoint`
+- **例**: `/mcp/powerpoint`, `/mcp/excel`
 - **メソッド**: POST
 - **形式**: MCP標準プロトコル
+- **用途**: Open WebUI等のMCPクライアント向け
+
+**Open WebUIでの設定**: このエンドポイントを使用します
+```yaml
+OPENAI_API_BASE=http://nginx/mcp  # または http://localhost/mcp
+```
+
+#### MCPOエンドポイント（JSON-RPC 2.0）
+
+- **URL**: `http://localhost/mcpo/{server-type}`
+- **例**: `/mcpo/powerpoint`, `/mcpo/excel`  
+- **メソッド**: POST
+- **形式**: JSON-RPC 2.0（MCPO仕様）
+- **用途**: カスタムMCPOクライアント向け
 
 ### ヘルスチェックエンドポイント
 

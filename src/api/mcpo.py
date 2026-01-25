@@ -1,15 +1,232 @@
 """
 MCPOエンドポイント
 
-MCPOプロトコルのリクエストを処理
+MCPOプロトコルとOpenAI API互換エンドポイントの処理
 """
 import logging
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, HTTPException, status
 
 from src.api.common import process_mcp_request
+from src.core.config import mcp_config, settings
+from src.core.process_manager import process_manager
+from src.core.job_manager import job_manager
+from src.utils.network import extract_client_ip
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+async def _generate_openapi_spec(server_type: str, request: Request):
+    """
+    OpenAPI仕様書を生成する内部関数
+    
+    指定されたMCPサーバーからtools/listを取得し、
+    OpenAI API互換の関数定義に変換してOpenAPI仕様書として返す
+    
+    Args:
+        server_type: MCPサーバータイプ（例: "powerpoint"）
+        request: FastAPIリクエストオブジェクト
+    
+    Returns:
+        OpenAPI 3.0仕様書（JSON）
+    """
+    # サーバータイプの存在確認
+    if not mcp_config.get_server_config(server_type):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown server type: {server_type}"
+        )
+    
+    # クライアント情報を取得
+    client_ip = extract_client_ip(request)
+    session_key = f"ip:{client_ip}"
+    
+    # tools/listリクエストを作成
+    # 注: MCP protocolではparamsフィールドが必須（空でもOK）
+    tools_list_request = {
+        "jsonrpc": "2.0",
+        "method": "tools/list",
+        "params": {},
+        "id": 1
+    }
+    
+    # 一時的なジョブIDを作成
+    job_id, job_dir = job_manager.create_job(server_type, client_ip)
+    
+    try:
+        # MCPサーバーからツール一覧を取得
+        response_data, exit_code, actual_job_dir = await process_manager.execute_request(
+            server_type=server_type,
+            request_data=tools_list_request,
+            job_dir=job_dir,
+            session_key=session_key if settings.stateful_enabled else None
+        )
+        
+        # デバッグ: tools/list レスポンスをログ出力
+        logger.debug(f"[DEBUG] tools/list response for {server_type}: {response_data}")
+        
+        # レスポンスからツール情報を抽出
+        tools = []
+        if isinstance(response_data, dict) and "result" in response_data:
+            result = response_data["result"]
+            if isinstance(result, dict) and "tools" in result:
+                tools = result["tools"]
+        
+        logger.debug(f"[DEBUG] Retrieved {len(tools)} tools from {server_type}")
+        
+        # usage guideを取得
+        usage_guide = mcp_config.get_usage_guide(server_type)
+        logger.debug(f"[DEBUG] Usage guide for {server_type}: {'Found' if usage_guide else 'Not found'}")
+        if usage_guide:
+            logger.debug(f"[DEBUG] Usage guide length: {len(usage_guide)}")
+            logger.debug(f"[DEBUG] Usage guide preview: {usage_guide[:200]}...")
+        
+        # OpenAPI仕様書を生成
+        description = f"OpenAI-compatible API for {server_type} MCP server"
+        if usage_guide:
+            description = f"{description}\n\n{usage_guide}"
+        
+        openapi_spec = {
+            "openapi": "3.0.0",
+            "info": {
+                "title": f"{server_type} MCP Server API",
+                "description": description,
+                "version": "1.0.0"
+            },
+            "servers": [
+                {
+                    "url": f"http://localhost/mcpo/{server_type}"
+                }
+            ],
+            "paths": {},
+            "components": {
+                "schemas": {}
+            }
+        }
+        
+        # ツールが取得できない場合はダミーツールを追加
+        if not tools and usage_guide:
+            tools = [
+                {
+                    "name": f"{server_type}_usage_guide",
+                    "description": f"Usage guide for {server_type} MCP server:\n\n{usage_guide}",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "Your question about how to use this tool"
+                            }
+                        },
+                        "required": []
+                    }
+                }
+            ]
+        
+        # 各ツールをOpenAPI paths形式に変換
+        # Open WebUIはpathsセクションからoperationIdを使ってツールを抽出する
+        for tool in tools:
+            if not isinstance(tool, dict):
+                continue
+            
+            tool_name = tool.get("name", "")
+            tool_description = tool.get("description", "")
+            input_schema = tool.get("inputSchema", {})
+            
+            # usage guideが存在し、ダミーツールでない場合は説明に追加
+            # LLMが直接参照するのはoperation.descriptionなので、ここに含める
+            original_description = tool_description
+            if usage_guide and not tool_name.endswith("_usage_guide"):
+                tool_description = f"{tool_description}\n\n## Usage Guide\n\n{usage_guide}"
+                logger.debug(f"[DEBUG] Tool '{tool_name}': Added usage guide to description")
+                logger.debug(f"[DEBUG]   Original length: {len(original_description)}")
+                logger.debug(f"[DEBUG]   New length: {len(tool_description)}")
+            
+            # ツール名をパスに変換（例: "create_presentation" -> "/create_presentation"）
+            path = f"/{tool_name}"
+            
+            # OpenAPI path item定義
+            # operation.descriptionにusage guideを含める（LLMが参照するのはここ）
+            logger.debug(f"[DEBUG] Creating OpenAPI path for '{tool_name}'")
+            logger.debug(f"[DEBUG]   summary: {tool.get('description', '')[:100]}...")
+            logger.debug(f"[DEBUG]   description: {tool_description[:100]}...")
+            
+            openapi_spec["paths"][path] = {
+                "post": {
+                    "operationId": tool_name,
+                    "summary": tool.get("description", ""),  # 元のツール説明
+                    "description": tool_description,  # usage guide含む完全な説明
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": input_schema
+                            }
+                        }
+                    },
+                    "responses": {
+                        "200": {
+                            "description": "Successful operation",
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "object"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        
+        # 最終的なOpenAPI仕様書のサマリーをログ出力
+        logger.debug(f"[DEBUG] OpenAPI spec generated for {server_type}:")
+        logger.debug(f"[DEBUG]   Paths count: {len(openapi_spec['paths'])}")
+        logger.debug(f"[DEBUG]   Info description length: {len(openapi_spec['info'].get('description', ''))}")
+        
+        return openapi_spec
+    
+    except Exception as e:
+        logger.error(f"Failed to generate OpenAPI spec for {server_type}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate OpenAPI specification: {str(e)}"
+        )
+
+
+@router.get("/{server_type}/openapi.json")
+async def get_openapi_spec_with_suffix(server_type: str, request: Request):
+    """
+    OpenAI API互換のOpenAPI仕様書を生成（/openapi.json付き）
+    
+    Args:
+        server_type: MCPサーバータイプ（例: "powerpoint"）
+        request: FastAPIリクエストオブジェクト
+    
+    Returns:
+        OpenAPI 3.0仕様書（JSON）
+    """
+    logger.info(f"[ENDPOINT] GET /{server_type}/openapi.json called")
+    return await _generate_openapi_spec(server_type, request)
+
+
+@router.get("/{server_type}")
+async def get_openapi_spec_root(server_type: str, request: Request):
+    """
+    OpenAI API互換のOpenAPI仕様書を生成（ルートパス）
+    
+    Open WebUIは/{server_type}にGETリクエストを送ってOpenAPI仕様を取得するため、
+    このエンドポイントでも同じ仕様書を返す
+    
+    Args:
+        server_type: MCPサーバータイプ（例: "powerpoint"）
+        request: FastAPIリクエストオブジェクト
+    
+    Returns:
+        OpenAPI 3.0仕様書（JSON）
+    """
+    logger.info(f"[ENDPOINT] GET /{server_type} called")
+    return await _generate_openapi_spec(server_type, request)
 
 
 @router.post("/{server_type}")
@@ -27,4 +244,9 @@ async def mcpo_endpoint(server_type: str, request: Request):
     Returns:
         MCPサーバーからのレスポンス（JSON）
     """
+    # リクエストボディを取得してログ出力
+    body = await request.json()
+    logger.info(f"[ENDPOINT] POST /{server_type} called")
+    logger.info(f"[ENDPOINT] Request body: {body}")
+    
     return await process_mcp_request(server_type, request, "MCPO")

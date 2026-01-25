@@ -25,7 +25,7 @@ services:
     volumes:
       - openwebui-data:/app/backend/data
     environment:
-      - OPENAI_API_BASE=http://nginx/mcp
+      - OPENAI_API_BASE=http://nginx/mcpo
       - WEBUI_AUTH=false
     networks:
       - mcpo-network
