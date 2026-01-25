@@ -125,6 +125,48 @@ class ProcessManager:
                 server_type, server_config, request_data, job_dir
             )
     
+    def _resolve_file_paths(
+        self,
+        request_data: dict,
+        resolve_path_fields: list,
+        job_dir: Path
+    ) -> dict:
+        """
+        resolve_path_fieldsで指定されたフィールドを絶対パスに変換
+        
+        Args:
+            request_data: リクエストデータ
+            resolve_path_fields: 変換対象のフィールド名リスト（mcp-servers.jsonで設定）
+            job_dir: ジョブディレクトリ（相対パスの解決に使用）
+        
+        Returns:
+            変換後のリクエストデータ
+        
+        Note:
+            file_path_fieldsとは別用途:
+            - resolve_path_fields: リクエスト時の絶対パス変換用（この関数）
+            - file_path_fields: レスポンス時のURL変換用（別処理）
+        """
+        if not resolve_path_fields:
+            return request_data
+        
+        # tools/callリクエストのargumentsを処理
+        if request_data.get("method") == "tools/call":
+            params = request_data.get("params", {})
+            arguments = params.get("arguments", {})
+            
+            for field in resolve_path_fields:
+                if field in arguments:
+                    file_path = arguments[field]
+                    # 文字列かつ相対パス（絶対パスでない）場合のみ変換
+                    if isinstance(file_path, str) and not os.path.isabs(file_path):
+                        # job_dirを基準に絶対パスに変換
+                        absolute_path = str(job_dir / file_path)
+                        arguments[field] = absolute_path
+                        logger.debug(f"Resolved file path: {field}: {file_path} → {absolute_path}")
+        
+        return request_data
+    
     async def _execute_stateless(
         self,
         server_type: str,
@@ -156,6 +198,10 @@ class ProcessManager:
             process = await self._start_process(server_config, job_dir)
             
             try:
+                # resolve_path_fieldsが指定されている場合、ファイルパスを絶対パスに変換
+                resolve_path_fields = server_config.get("resolve_path_fields", [])
+                request_data = self._resolve_file_paths(request_data, resolve_path_fields, job_dir)
+                
                 # リクエストのメソッドを取得
                 method = request_data.get("method", "")
                 
@@ -240,6 +286,10 @@ class ProcessManager:
         # 同一プロセスへのリクエストを直列化
         async with process_info.request_lock:
             try:
+                # resolve_path_fieldsが指定されている場合、ファイルパスを絶対パスに変換
+                resolve_path_fields = server_config.get("resolve_path_fields", [])
+                request_data = self._resolve_file_paths(request_data, resolve_path_fields, process_info.working_dir)
+                
                 # リクエストを送信してレスポンスを受信
                 response_data, exit_code = await self._communicate(
                     process_info.process, request_data, settings.timeout
@@ -374,7 +424,7 @@ class ProcessManager:
         
         logger.info(f"Starting process: {' '.join(cmd)}")
         logger.info(f"Working directory: {job_dir}")
-        logger.info(f"Environment variables: {env_vars}")
+        logger.info(f"Environment variables: {resolved_env_vars}")
         
         # プロセスを起動
         process = subprocess.Popen(

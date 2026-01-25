@@ -38,6 +38,17 @@ def _extract_file_info(
         (ダウンロードURL情報が追加されたデータ, ファイル情報のリスト)
     """
     files = []
+    jobs_dir = settings.jobs_dir
+    
+    def extract_filename_from_path(file_path: str) -> str | None:
+        """パスからファイル名を抽出（絶対パス・相対パス両対応）"""
+        # /tmp/mcpo-jobs/{job_id}/filename.xlsx → filename.xlsx
+        if f"/mcpo-jobs/{job_id}/" in file_path:
+            return file_path.split(f"/mcpo-jobs/{job_id}/")[-1]
+        # 相対パスの場合はそのままファイル名として使用
+        elif not os.path.isabs(file_path):
+            return Path(file_path).name
+        return None
     
     def process_data(data: Any) -> Any:
         nonlocal files
@@ -48,23 +59,53 @@ def _extract_file_info(
                 if field_name in data:
                     file_path = data[field_name]
                     
-                    # 相対パスの場合のみダウンロードURLを追加
-                    if file_path and isinstance(file_path, str) and not os.path.isabs(file_path):
-                        # ファイル名を抽出
-                        filename = Path(file_path).name
-                        # ダウンロードURLを生成
-                        download_url = f"{base_url}/files/{job_id}/{filename}"
+                    if file_path and isinstance(file_path, str):
+                        filename = extract_filename_from_path(file_path)
                         
-                        # Open WebUI形式のファイル情報を追加
-                        files.append({
-                            "type": "file",
-                            "url": download_url,
-                            "name": filename
-                        })
-                        
-                        # 後方互換性のため_download_urlも追加
-                        data["_download_url"] = download_url
-                        logger.debug(f"Added file info for {field_name}={file_path}: {download_url}")
+                        if filename:
+                            # ダウンロードURLを生成
+                            download_url = f"{base_url}/files/{job_id}/{filename}"
+                            
+                            # Open WebUI形式のファイル情報を追加
+                            files.append({
+                                "type": "file",
+                                "url": download_url,
+                                "name": filename
+                            })
+                            
+                            # 後方互換性のため_download_urlも追加
+                            data["_download_url"] = download_url
+                            logger.debug(f"Added file info for {field_name}={file_path}: {download_url}")
+            
+            # contentフィールド内のテキストもチェック（Excelツール対応）
+            if "content" in data and isinstance(data["content"], list):
+                for item in data["content"]:
+                    if isinstance(item, dict) and item.get("type") == "text":
+                        text = item.get("text", "")
+                        # テキスト内の絶対パスを検出して変換
+                        if f"/mcpo-jobs/{job_id}/" in text:
+                            import re
+                            # パスパターンを検出: /tmp/mcpo-jobs/{job_id}/filename.ext
+                            pattern = rf'/tmp/mcpo-jobs/{job_id}/([^\s\)]+\.\w+)'
+                            matches = re.findall(pattern, text)
+                            
+                            for filename in matches:
+                                download_url = f"{base_url}/files/{job_id}/{filename}"
+                                
+                                # ファイル情報リストに追加（重複チェック）
+                                if not any(f["name"] == filename for f in files):
+                                    files.append({
+                                        "type": "file",
+                                        "url": download_url,
+                                        "name": filename
+                                    })
+                                    logger.debug(f"Extracted file from text: {filename} → {download_url}")
+                                
+                                # テキスト内のパスを相対パスに置換
+                                text = text.replace(f"/tmp/mcpo-jobs/{job_id}/{filename}", filename)
+                            
+                            # 更新されたテキストを設定
+                            item["text"] = text
             
             # ネストされた辞書も再帰的に処理
             for key, value in data.items():
