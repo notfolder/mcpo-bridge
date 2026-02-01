@@ -19,7 +19,7 @@ services:
   # OpenWebUI Service
   openwebui:
     container_name: openwebui
-    image: ghcr.io/open-webui/open-webui:main
+    image: notfolder/open-webui:v0.6.43
     ports:
       - "3000:8080"
     volumes:
