@@ -20,14 +20,19 @@ MCPO On-Demand Bridgeは、OpenWebUI + MCPO環境において、PowerPoint等の
 - **1リクエスト = 1プロセス**: リクエスト毎にMCPサーバープロセスを起動
 - **即座に終了**: 処理完了後は即座にプロセス終了
 - **リソース効率**: メモリ常駐を避け、必要時のみリソース消費
+- **用途**: ファイルを生成しない読み取り専用ツール向け（例: 検索、計算、データ取得）
 
-#### Stateful（ステートフル）モード
+#### Stateful（ステートフル）モード（ファイル操作ツール必須）
 
-- **セッション維持**: クライアントIPアドレスごとにプロセスを維持
-- **状態保持**: PowerPoint等の複数リクエスト間での状態保持が必要なサーバーに対応
+- **セッション維持**: OpenWebUIからのヘッダ情報（User ID/Chat ID）単位でプロセスとワーキングディレクトリを維持
+- **状態保持**: PowerPoint、Excel等の複数リクエスト間での状態保持が必要なサーバーに対応
+- **ファイル共有**: 同一セッション内の全リクエストが同じワーキングディレクトリを共有
 - **アイドルタイムアウト**: 非アクティブ時は自動的にプロセスを終了
+- **Chat単位の分離**: 同一ユーザーでも異なるChat IDなら別セッション（完全分離）
 
-詳細は[ステートフル機能](#ステートフル機能ipアドレスベース)セクションを参照してください。
+**重要**: ファイルを生成・編集するMCPツール（Excel、PowerPoint等）は**必ずステートフルモード**で設定してください。ステートレスモードでは各リクエストで別のディレクトリが作成されるため、前のリクエストで作成したファイルにアクセスできません。
+
+詳細は[ステートフル機能](#ステートフル機能チャット単位セッション管理)セクションを参照してください。
 
 ### セキュアなファイル管理
 
@@ -113,12 +118,82 @@ docker-compose up -d
 
 4. ブラウザでOpenWebUIにアクセス:
 ```
-http://localhost:80
+http://localhost:3000
 ```
 
 **注意**: 
 - 初回起動時、Docker Composeが自動的に`./data/mcpo-jobs`と`./data/mcpo-logs`ディレクトリを作成します（gitignore対象）
 - これらのディレクトリが存在しない場合、Dockerのバインドマウント機能により自動的にホスト側に作成されます
+
+### Open WebUIでのMCPO設定
+
+docker-compose.ymlで起動した場合、Open WebUIは自動的にMCPOブリッジに接続されます。以下の設定が自動的に適用されています：
+
+```yaml
+environment:
+  - OPENAI_API_BASE=http://nginx/mcp
+```
+
+**注意**: エンドポイントは`/mcp`です（`/mcpo`ではありません）
+- `/mcp/{server-type}`: MCP標準プロトコル用（Open WebUI向け） ← これを使用
+- `/mcpo/{server-type}`: MCPOプロトコル（JSON-RPC 2.0）用
+
+この設定により、Open WebUIは`http://nginx/mcp`をMCPエンドポイントとして使用します。
+
+#### 手動でOpen WebUIを設定する場合
+
+既存のOpen WebUI環境でMCPOブリッジを使用する場合、以下の手順で設定してください：
+
+1. **Open WebUIの管理画面にアクセス**
+   - 設定（Settings）→ 接続（Connections）を開く
+
+2. **OpenAI API設定を追加**
+   - **API Base URL**: `http://nginx/mcp`（Docker Compose環境内から）
+   - または `http://localhost/mcp`（ホストから直接アクセスする場合）
+   - **重要**: `/mcp`を使用します（`/mcpo`ではありません）
+   
+3. **MCPサーバータイプの指定**
+   - MCPOブリッジは複数のサーバータイプをサポートします
+   - エンドポイント形式: `/mcp/{server-type}`
+   - 例: `/mcp/powerpoint`, `/mcp/excel`
+   
+4. **利用方法**
+   - Open WebUIのチャットでMCPツールが自動的に利用可能になります
+   - 各MCPサーバーが提供するツールは、AIが適切な場面で自動的に呼び出します
+
+#### 動作確認
+
+MCPOブリッジが正しく動作しているか確認：
+
+```bash
+# ヘルスチェック
+curl http://localhost/health
+
+# レスポンス例
+{
+  "status": "ok",
+  "timestamp": "2026-01-26T00:00:00.000000+00:00",
+  "version": "0.1.0",
+  "uptime": 123.45,
+  "stateful_processes": 0
+}
+```
+
+#### トラブルシューティング
+
+**Open WebUIでツールが表示されない場合**:
+
+1. MCPO Bridgeのログを確認:
+```bash
+docker-compose logs -f mcpo-bridge
+```
+
+2. `config/mcp-servers.json`の設定を確認
+3. Open WebUIからMCPエンドポイントにアクセスできるか確認
+4. Nginxが正しくプロキシしているか確認:
+```bash
+docker-compose logs -f nginx
+```
 
 ### 停止方法
 
@@ -203,21 +278,32 @@ docker-compose.ymlで以下の環境変数を設定できます:
 | MCPO_LOG_LEVEL | INFO | ログレベル |
 | MCPO_STATEFUL_ENABLED | true | ステートフル機能の有効化 |
 | MCPO_STATEFUL_DEFAULT_IDLE_TIMEOUT | 1800 | ステートフルプロセスのデフォルトアイドルタイムアウト（秒） |
-| MCPO_STATEFUL_MAX_PROCESSES_PER_IP | 1 | クライアントIPごとの最大プロセス数 |
+| MCPO_STATEFUL_MAX_PROCESSES_PER_CHAT | 1 | クライアントチャットごとの最大プロセス数 |
 | MCPO_STATEFUL_MAX_TOTAL_PROCESSES | 100 | 全体の最大ステートフルプロセス数 |
 | MCPO_STATEFUL_CLEANUP_INTERVAL | 300 | ステートフルプロセスのクリーンアップ間隔（秒） |
 
-### ステートフル機能（IPアドレスベース）
+### ステートフル機能（チャット単位セッション管理）
 
 `MCPO_STATEFUL_ENABLED=true`の場合、ステートフルMCPサーバーのサポートが有効になります。
 
 #### 設計概要
 
-- **セッション識別**: クライアントIPアドレスベース（固定IP環境を想定）
+- **セッション識別**: OpenWebUIヘッダ（`X-OpenWebUI-User-Id`、`X-OpenWebUI-Chat-Id`）ベース
+  - セッションキー形式: `user:{user_id}:chat:{chat_id}`
+  - ヘッダがない場合のフォールバック: `ip:{ip_address}`
 - **対象サーバー**: `mcp-servers.json`で`"mode": "stateful"`を指定したサーバー
-- **プロセス管理**: IPアドレスごとに専用プロセスを維持し、セッション状態を保持
-- **負荷分散**: Nginxの`ip_hash`ディレクティブにより、同一IPからのリクエストを同一Bridgeインスタンスにルーティング
+- **プロセス管理**: Chat IDごとに専用プロセスとワーキングディレクトリを維持し、セッション状態を保持
+- **Chat単位の分離**: 同一ユーザーでも異なるChat IDなら別セッション（別プロセス、別ディレクトリ）
+- **負荷分散**: Nginxの`hash $hash_key consistent`により、同一Chat IDからのリクエストを同一Bridgeインスタンスにルーティング
 - **アイドルタイムアウト**: 指定時間リクエストがない場合、プロセスを自動終了
+
+#### ファイル操作ツールは必ずステートフルモード
+
+**重要**: Excel、PowerPoint等のファイルを生成・編集するMCPツールは**必ずステートフルモード**で設定してください。理由：
+
+1. **ファイル共有の必要性**: create → write → save の複数リクエストで同じファイルにアクセスする必要がある
+2. **ステートレスの問題**: 各リクエストで別のディレクトリが作成されるため、前のリクエストで作成したファイルにアクセスできない
+3. **ステートフルの利点**: 同じセッション内の全リクエストが同じワーキングディレクトリを共有
 
 #### 設定方法
 
@@ -230,12 +316,16 @@ docker-compose.ymlで以下の環境変数を設定できます:
       "args": ["-y", "@gongrzhe/office-powerpoint-mcp-server"],
       "mode": "stateful",
       "idle_timeout": 1800,
-      "max_processes_per_ip": 1
+      "max_processes_per_chat": 1,
+      "session_persistence": true
     },
     "excel": {
       "command": "uvx",
       "args": ["excel-mcp-server", "stdio"],
-      "mode": "stateless"
+      "mode": "stateful",
+      "idle_timeout": 3600,
+      "max_processes_per_chat": 1,
+      "session_persistence": true
     }
   }
 }
@@ -243,10 +333,10 @@ docker-compose.ymlで以下の環境変数を設定できます:
 
 #### 運用上の注意
 
-- **適用環境**: プライベートネットワーク、企業ネットワーク、固定IP VPC環境
-- **非推奨環境**: パブリックインターネット、モバイルネットワーク、共有NAT環境
-- **セキュリティ**: IPアドレスは認証情報ではなく、信頼されたネットワーク内での使用を想定
-- **負荷集中**: `ip_hash`により特定Bridgeインスタンスに負荷が集中する可能性があります
+- **適用環境**: OpenWebUI連携環境（推奨）、プライベートネットワーク、企業ネットワーク
+- **ヘッダ転送**: NginxがOpenWebUIからのヘッダを転送する設定が必要（`MCPO_ENABLE_FORWARD_USER_INFO_HEADERS=true`）
+- **セキュリティ**: ヘッダ情報は認証情報ではなく、信頼されたネットワーク内での使用を想定
+- **負荷集中**: Chat ID単位のconsistent hashingにより特定Bridgeインスタンスに負荷が集中する可能性があります
 
 詳細設計は[docs/detailed-design.md](docs/detailed-design.md)のセクション19を参照してください。
 
@@ -278,21 +368,30 @@ mcpo-bridge/
 
 ### MCP/MCPOエンドポイント（複数サーバータイプ対応）
 
-各MCPサーバータイプごとに独立したエンドポイント:
+各MCPサーバータイプごとに独立したエンドポイントを提供します。
 
-#### MCPOエンドポイント
+**重要**: MCPとMCPOは異なるプロトコルですが、本ブリッジではどちらも内部的にJSON-RPC 2.0形式でMCPサーバーと通信します。
 
-- **URL**: `http://localhost/mcpo/{server-type}`
-- 例：`/mcpo/powerpoint`
-- **メソッド**: POST
-- **形式**: JSON-RPC 2.0
-
-#### MCPエンドポイント
+#### MCPエンドポイント（Open WebUI向け）
 
 - **URL**: `http://localhost/mcp/{server-type}`
-- 例：`/mcp/powerpoint`
+- **例**: `/mcp/powerpoint`, `/mcp/excel`
 - **メソッド**: POST
 - **形式**: MCP標準プロトコル
+- **用途**: Open WebUI等のMCPクライアント向け
+
+**Open WebUIでの設定**: このエンドポイントを使用します
+```yaml
+OPENAI_API_BASE=http://nginx/mcp  # または http://localhost/mcp
+```
+
+#### MCPOエンドポイント（JSON-RPC 2.0）
+
+- **URL**: `http://localhost/mcpo/{server-type}`
+- **例**: `/mcpo/powerpoint`, `/mcpo/excel`  
+- **メソッド**: POST
+- **形式**: JSON-RPC 2.0（MCPO仕様）
+- **用途**: カスタムMCPOクライアント向け
 
 ### ヘルスチェックエンドポイント
 

@@ -11,7 +11,9 @@
       },
       "mode": "stateful",
       "idle_timeout": 1800,
-      "max_processes_per_ip": 1
+      "max_processes_per_chat": 1,
+      "file_path_fields": ["file_path", "saved_path"],
+      "usage_guide": "PowerPointツールの使用方法:\n1. create_presentation()で開始\n2. presentation_idを使ってスライド操作\n3. save_presentation()で保存\n\n禁止: auto_generate_presentation の使用、python-pptxコード提案"
     },
     "excel": {
       "command": "uvx",
@@ -19,7 +21,9 @@
         "excel-mcp-server",
         "stdio"
       ],
-      "mode": "stateless"
+      "mode": "stateless",
+      "file_path_fields": ["output_file", "file_path"],
+      "usage_guide": "Excelツールの使用方法:\n- create_workbook, write_data_to_excel などを直接使用\n- openpyxl/pandasコードは提案しない"
     }
   }
 }
