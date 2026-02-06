@@ -559,3 +559,23 @@ Creative Commons Attribution 4.0 International (CC BY 4.0). 詳細は [LICENSE](
 ---
 
 **MCPO On-Demand Bridge** - Scalable, Secure MCP Server Bridge with Stateful/Stateless Support and Nginx Integration
+
+##　備忘
+
+### ビルダーを作成（初回のみ）
+docker buildx create --name multiarch-builder --use
+
+### ビルダーを起動
+docker buildx inspect --bootstrap
+docker buildx use multiarch-builder
+
+### マルチアーキテクチャでビルド＆プッシュ
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  --tag notfolder/mcpo-bridge:latest \
+  --push \
+  .
+
+### 戻す
+docker context use default
+docker buildx use default
