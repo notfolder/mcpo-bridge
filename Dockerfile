@@ -34,6 +34,55 @@ RUN apt-get update && apt-get install -y gdebi-core && \
     rm quarto-${QUARTO_VERSION}-linux-${QUARTO_ARCH}.deb && \
     rm -rf /var/lib/apt/lists/*
 
+# Chromiumのインストール（ウェブサイト機能用）
+# ARM64ではQuarto公式Chromiumが対応していないため、システムのChromiumを使用
+RUN if [ "${TARGETARCH}" = "arm64" ]; then \
+        apt-get update && apt-get install -y \
+        chromium \
+        chromium-driver \
+        fonts-liberation \
+        libnss3 \
+        libxss1 \
+        libappindicator3-1 \
+        libasound2 \
+        libgbm1 \
+        libatk-bridge2.0-0 \
+        libgtk-3-0 \
+        libx11-xcb1 \
+        libxcomposite1 \
+        libxcursor1 \
+        libxdamage1 \
+        libxi6 \
+        libxtst6 \
+        libpangocairo-1.0-0 \
+        libcups2 \
+        libxrandr2 \
+        && rm -rf /var/lib/apt/lists/* \
+        && ln -sf /usr/bin/chromium /usr/bin/google-chrome || true; \
+    else \
+        quarto tools install chromium; \
+    fi
+
+# ARM64の場合、QuartoにChromiumのパスを教える
+ENV CHROME_PATH=/usr/bin/chromium
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+
+# TeX環境のインストール（PDF生成用）
+# ARM64ではTinyTeXがサポートされていないため、TeX Liveを使用
+RUN if [ "${TARGETARCH}" = "arm64" ]; then \
+        apt-get update && apt-get install -y \
+        texlive-latex-base \
+        texlive-latex-extra \
+        texlive-fonts-recommended \
+        texlive-fonts-extra \
+        texlive-lang-japanese \
+        texlive-xetex \
+        && rm -rf /var/lib/apt/lists/*; \
+    else \
+        quarto install tinytex; \
+    fi
+
 # uvのインストール（Python製MCPサーバー用、uvx経由）
 RUN pip install --no-cache-dir uv
 
