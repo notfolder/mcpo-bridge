@@ -18,6 +18,22 @@ RUN apt-get update && apt-get install -y \
     npm \
     && rm -rf /var/lib/apt/lists/*
 
+# Quarto CLIのインストール（quarto_mcp用）
+# マルチアーキテクチャ対応（amd64/arm64）
+# TARGETARCHを使用してアーキテクチャに応じたパッケージをダウンロード
+ARG TARGETARCH
+ENV QUARTO_VERSION=1.4.555
+RUN apt-get update && apt-get install -y gdebi-core && \
+    case ${TARGETARCH} in \
+        amd64) QUARTO_ARCH=amd64 ;; \
+        arm64) QUARTO_ARCH=arm64 ;; \
+        *) echo "Unsupported architecture: ${TARGETARCH}" && exit 1 ;; \
+    esac && \
+    curl -LO https://github.com/quarto-dev/quarto-cli/releases/download/v${QUARTO_VERSION}/quarto-${QUARTO_VERSION}-linux-${QUARTO_ARCH}.deb && \
+    gdebi -n quarto-${QUARTO_VERSION}-linux-${QUARTO_ARCH}.deb && \
+    rm quarto-${QUARTO_VERSION}-linux-${QUARTO_ARCH}.deb && \
+    rm -rf /var/lib/apt/lists/*
+
 # uvのインストール（Python製MCPサーバー用、uvx経由）
 RUN pip install --no-cache-dir uv
 
@@ -27,6 +43,9 @@ ENV UV_TOOL_DIR=/root/.local/share/uv/tools
 ENV UV_TOOL_BIN_DIR=/root/.local/bin
 RUN uv tool install office-powerpoint-mcp-server && \
     ln -sf /root/.local/bin/ppt_mcp_server /usr/local/bin/ppt_mcp_server || true
+
+# Quarto MCPサーバーをキャッシュ
+RUN uvx --from git+https://github.com/notfolder/quarto_mcp quarto-mcp --help || true
 
 # Pythonの依存関係ファイルをコピー
 COPY requirements.txt .
