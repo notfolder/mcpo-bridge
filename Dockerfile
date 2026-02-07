@@ -83,6 +83,8 @@ RUN if [ "${TARGETARCH}" = "arm64" ]; then \
         quarto install tinytex; \
     fi
 
+RUN npm install -g @mermaid-js/mermaid-cli
+
 # uvのインストール（Python製MCPサーバー用、uvx経由）
 RUN pip install --no-cache-dir uv
 
