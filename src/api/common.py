@@ -284,7 +284,15 @@ async def process_mcp_request(
             settings.base_url,
             file_path_fields
         )
-        
+
+        # post_instractionがあればinstructionとして追加
+        server_config = mcp_config.get_server_config(server_type)
+        post_instraction = None
+        if server_config:
+            post_instraction = server_config.get("post_instraction")
+        if post_instraction and isinstance(response_data, dict):
+            response_data["instruction"] = post_instraction
+
         # Open WebUI形式: contentにダウンロード案内を追加
         if files and isinstance(response_data, dict):
             if "result" in response_data:
@@ -313,13 +321,13 @@ async def process_mcp_request(
                             "text": download_text
                         }
                     ]
-        
+
         # MCPOプロトコルの場合はOpenAI互換形式に変換
         if protocol_name == "MCPO":
             openai_response = _convert_mcp_to_openai_format(response_data, files)
             logger.debug(f"Converted to OpenAI format: {openai_response}")
             return openai_response
-        
+
         # MCP形式のまま返却（従来の動作）
         return response_data
     
