@@ -1,0 +1,3 @@
+[submodule "quarto_mcp"]
+	path = quarto_mcp
+	url = git@github.com:notfolder/quarto_mcp.git
