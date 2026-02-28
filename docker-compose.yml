@@ -49,6 +49,7 @@ services:
       - .env
     environment:
       - MCPO_LOG_LEVEL=DEBUG
+      - QUARTO_MCP_KROKI_URL=http://kroki:8000
       # MCPO_BASE_URL は .env から読み込まれる
     networks:
       - mcpo-network
@@ -65,6 +66,30 @@ services:
       replicas: 1  # Scale to 3 replicas for load distribution
       restart_policy:
         condition: any
+    depends_on:
+      - kroki
+    restart: unless-stopped
+
+  kroki:
+    image: yuzutech/kroki:0.28.0
+    container_name: kroki
+    ports:
+      - "8000:8000"
+    environment:
+      - KROKI_MERMAID_HOST=mermaid
+    networks:
+      - mcpo-network
+    depends_on:
+      - mermaid
+    restart: unless-stopped
+
+  mermaid:
+    image: yuzutech/kroki-mermaid:0.28.0
+    # container_name: kroki-mermaid
+    expose:
+      - "8002"
+    networks:
+      - mcpo-network
     restart: unless-stopped
 
 volumes:

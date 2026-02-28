@@ -85,6 +85,14 @@ RUN if [ "${TARGETARCH}" = "arm64" ]; then \
 
 RUN npm install -g @mermaid-js/mermaid-cli
 
+# Quarto拡張機能を事前インストール
+# /opt/quarto-project/_extensionsに拡張機能をダウンロード
+# Quarto MCPサーバーがこのディレクトリから拡張機能をコピーして使用
+RUN mkdir -p /opt/quarto-project && \
+    cd /opt/quarto-project && \
+    quarto add fermarsan/quarto-kroki --no-prompt && \
+    ls -la /opt/quarto-project/_extensions
+
 # uvのインストール（Python製MCPサーバー用、uvx経由）
 RUN pip install --no-cache-dir uv
 
