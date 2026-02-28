@@ -48,9 +48,12 @@ class JobManager:
         # UUID v4でジョブIDを生成
         job_id = str(uuid.uuid4())
         
+        logger.info(f"[CREATE_JOB] Creating job {job_id} for server_type={server_type}, session_key={session_key}")
+        
         # ジョブディレクトリを作成
         job_dir = self.jobs_dir / job_id
         job_dir.mkdir(parents=True, exist_ok=True)
+        logger.debug(f"[CREATE_JOB] Created job directory: {job_dir}")
         
         # メタデータを作成
         metadata = JobMetadata(
@@ -62,7 +65,7 @@ class JobManager:
         # メタデータを保存
         self.save_metadata(job_id, metadata)
         
-        logger.info(f"Created job: {job_id} for server type: {server_type}")
+        logger.info(f"[CREATE_JOB] Successfully created job: {job_id}")
         return job_id, job_dir
     
     def get_job_dir(self, job_id: str) -> Path:
@@ -88,8 +91,12 @@ class JobManager:
         job_dir = self.get_job_dir(job_id)
         metadata_file = job_dir / "metadata.json"
         
+        logger.debug(f"[SAVE_METADATA] Saving metadata for job {job_id} to {metadata_file}")
+        
         with open(metadata_file, 'w', encoding='utf-8') as f:
             json.dump(metadata.model_dump(mode='json'), f, indent=2, ensure_ascii=False)
+        
+        logger.debug(f"[SAVE_METADATA] Successfully saved metadata for job {job_id}")
     
     def load_metadata(self, job_id: str) -> Optional[JobMetadata]:
         """
@@ -104,15 +111,20 @@ class JobManager:
         job_dir = self.get_job_dir(job_id)
         metadata_file = job_dir / "metadata.json"
         
+        logger.debug(f"[LOAD_METADATA] Loading metadata for job {job_id} from {metadata_file}")
+        
         if not metadata_file.exists():
+            logger.warning(f"[LOAD_METADATA] Metadata file not found for job {job_id}")
             return None
         
         try:
             with open(metadata_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            return JobMetadata(**data)
+            metadata = JobMetadata(**data)
+            logger.debug(f"[LOAD_METADATA] Successfully loaded metadata for job {job_id}: status={metadata.status}")
+            return metadata
         except Exception as e:
-            logger.error(f"Failed to load metadata for job {job_id}: {e}")
+            logger.error(f"[LOAD_METADATA] Failed to load metadata for job {job_id}: {e}", exc_info=True)
             return None
     
     def update_status(self, job_id: str, status: JobStatus, error: Optional[str] = None):
@@ -124,13 +136,17 @@ class JobManager:
             status: 新しいステータス
             error: エラーメッセージ（オプション）
         """
+        logger.info(f"[UPDATE_STATUS] Job {job_id}: {status}" + (f" - {error}" if error else ""))
+        
         metadata = self.load_metadata(job_id)
         if metadata:
             metadata.status = status
             if error:
                 metadata.error = error
             self.save_metadata(job_id, metadata)
-            logger.info(f"Updated job {job_id} status to {status}")
+            logger.debug(f"[UPDATE_STATUS] Successfully updated job {job_id} status to {status}")
+        else:
+            logger.warning(f"[UPDATE_STATUS] Could not load metadata for job {job_id}, status update skipped")
     
     def save_request(self, job_id: str, request_data: dict):
         """
@@ -142,6 +158,9 @@ class JobManager:
         """
         job_dir = self.get_job_dir(job_id)
         request_file = job_dir / "request.json"
+        
+        logger.debug(f"[SAVE_REQUEST] Saving request for job {job_id}")
+        logger.debug(f"[SAVE_REQUEST] Request method: {request_data.get('method')}")
         
         with open(request_file, 'w', encoding='utf-8') as f:
             json.dump(request_data, f, indent=2, ensure_ascii=False)
@@ -162,6 +181,8 @@ class JobManager:
         """
         job_dir = self.get_job_dir(job_id)
         response_file = job_dir / "response.json"
+        
+        logger.debug(f"[SAVE_RESPONSE] Saving response for job {job_id}")
         
         with open(response_file, 'w', encoding='utf-8') as f:
             json.dump(response_data, f, indent=2, ensure_ascii=False)

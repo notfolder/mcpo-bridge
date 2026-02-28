@@ -9,9 +9,11 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     curl \
     ca-certificates \
+    build-essential \
+    python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Node.jsのインストール（office-powerpoint-mcp-server用、npx経由）
+# Node.jsのインストール（Mermaid CLI用、npx経由）
 # Node.js 20.x LTSをインストール（Debian公式リポジトリから）
 RUN apt-get update && apt-get install -y \
     nodejs \
@@ -22,7 +24,7 @@ RUN apt-get update && apt-get install -y \
 # マルチアーキテクチャ対応（amd64/arm64）
 # TARGETARCHを使用してアーキテクチャに応じたパッケージをダウンロード
 ARG TARGETARCH
-ENV QUARTO_VERSION=1.4.555
+ENV QUARTO_VERSION=1.8.27
 RUN apt-get update && apt-get install -y gdebi-core && \
     case ${TARGETARCH} in \
         amd64) QUARTO_ARCH=amd64 ;; \
@@ -83,28 +85,30 @@ RUN if [ "${TARGETARCH}" = "arm64" ]; then \
         quarto install tinytex; \
     fi
 
+# Mermaid CLIのインストール（Quartoの標準Mermaid機能用）
 RUN npm install -g @mermaid-js/mermaid-cli
 
-# Quarto拡張機能を事前インストール
-# /opt/quarto-project/_extensionsに拡張機能をダウンロード
-# Quarto MCPサーバーがこのディレクトリから拡張機能をコピーして使用
-RUN mkdir -p /opt/quarto-project && \
-    cd /opt/quarto-project && \
-    quarto add fermarsan/quarto-kroki --no-prompt && \
-    ls -la /opt/quarto-project/_extensions
+# # Quarto拡張機能を事前インストール
+# # /opt/quarto-project/_extensionsに拡張機能をダウンロード
+# # Quarto MCPサーバーがこのディレクトリから拡張機能をコピーして使用
+# # resepemb/quarto-kroki: カスタムKroki URL対応、全フォーマットサポート
+# RUN mkdir -p /opt/quarto-project && \
+#     cd /opt/quarto-project && \
+#     quarto add resepemb/quarto-kroki --no-prompt && \
+#     ls -la /opt/quarto-project/_extensions
 
 # uvのインストール（Python製MCPサーバー用、uvx経由）
 RUN pip install --no-cache-dir uv
 
 # よく使うMCPサーバーを事前にキャッシュ（初回起動時の遅延を削減）
-# uvのツールディレクトリを明示的に設定
-ENV UV_TOOL_DIR=/root/.local/share/uv/tools
-ENV UV_TOOL_BIN_DIR=/root/.local/bin
-RUN uv tool install office-powerpoint-mcp-server && \
-    ln -sf /root/.local/bin/ppt_mcp_server /usr/local/bin/ppt_mcp_server || true
+# # uvのツールディレクトリを明示的に設定
+# ENV UV_TOOL_DIR=/root/.local/share/uv/tools
+# ENV UV_TOOL_BIN_DIR=/root/.local/bin
+# RUN uv tool install office-powerpoint-mcp-server && \
+#     ln -sf /root/.local/bin/ppt_mcp_server /usr/local/bin/ppt_mcp_server || true
 
 # Quarto MCPサーバーをキャッシュ
-RUN uvx --from git+https://github.com/notfolder/quarto_mcp quarto-mcp --help || true
+# RUN uvx --from git+https://github.com/notfolder/quarto_mcp quarto-mcp --help || true
 
 # Pythonの依存関係ファイルをコピー
 COPY requirements.txt .

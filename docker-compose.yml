@@ -49,7 +49,8 @@ services:
       - .env
     environment:
       - MCPO_LOG_LEVEL=DEBUG
-      - QUARTO_MCP_KROKI_URL=http://kroki:8000
+      # Kroki統合を無効化して、Quartoの標準Mermaid機能を使用
+      # - QUARTO_MCP_KROKI_URL=http://kroki:8000
       # MCPO_BASE_URL は .env から読み込まれる
     networks:
       - mcpo-network

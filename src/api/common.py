@@ -192,13 +192,19 @@ async def process_mcp_request(
     Returns:
         MCPサーバーからのレスポンス（JSON）
     """
+    logger.info(f"[PROCESS_MCP_REQUEST] {protocol_name} request for {server_type}")
+    logger.debug(f"[PROCESS_MCP_REQUEST] All headers: {dict(request.headers)}")
+    
     # ファイルパスフィールド名を取得
     file_path_fields = mcp_config.get_file_path_fields(server_type)
+    logger.debug(f"[PROCESS_MCP_REQUEST] File path fields for {server_type}: {file_path_fields}")
     
     # セッションキーをヘッダー情報から決定
     # Open WebUI ヘッダーからユーザーIDとチャットIDを取得
     user_id = request.headers.get("X-OpenWebUI-User-Id")
     chat_id = request.headers.get("X-OpenWebUI-Chat-Id")
+    
+    logger.info(f"[PROCESS_MCP_REQUEST] Headers: X-OpenWebUI-User-Id={user_id}, X-OpenWebUI-Chat-Id={chat_id}")
     
     # セッションキーを構築（Chat ID優先、フォールバックとしてUser ID）
     session_key = None
@@ -207,23 +213,24 @@ async def process_mcp_request(
         session_key = f"chat:{chat_id}"
         if user_id:
             session_key = f"user:{user_id}:{session_key}"
-        logger.debug(f"Using chat-based session key: {session_key}")
+        logger.info(f"[PROCESS_MCP_REQUEST] Using chat-based session key: {session_key}")
     elif user_id:
         # User ID単位でセッション管理（Chat IDがない場合のフォールバック）
         session_key = f"user:{user_id}"
-        logger.debug(f"Using user-based session key: {session_key}")
+        logger.info(f"[PROCESS_MCP_REQUEST] Using user-based session key: {session_key}")
     else:
         # ヘッダー情報がない場合はエラー
-        logger.error("No session identification headers found (X-OpenWebUI-User-Id or X-OpenWebUI-Chat-Id)")
+        logger.error(f"[PROCESS_MCP_REQUEST] No session identification headers found (X-OpenWebUI-User-Id or X-OpenWebUI-Chat-Id)")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Missing session identification headers. Please ensure X-OpenWebUI-User-Id or X-OpenWebUI-Chat-Id header is set."
         )
     
-    logger.info(f"{protocol_name} request for session: {session_key}, server type: {server_type}")
+    logger.info(f"[PROCESS_MCP_REQUEST] {protocol_name} request for session: {session_key}, server type: {server_type}")
     
     # サーバータイプの存在確認
     if not mcp_config.get_server_config(server_type):
+        logger.error(f"[PROCESS_MCP_REQUEST] Unknown server type: {server_type}")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Unknown server type: {server_type}"
@@ -232,9 +239,10 @@ async def process_mcp_request(
     # リクエストボディを取得
     try:
         request_data = await request.json()
-        logger.debug(f"MCP request data: {request_data}")
+        logger.info(f"[PROCESS_MCP_REQUEST] Request method: {request_data.get('method')}")
+        logger.debug(f"[PROCESS_MCP_REQUEST] Full request data: {request_data}")
     except Exception as e:
-        logger.error(f"Failed to parse request JSON: {e}")
+        logger.error(f"[PROCESS_MCP_REQUEST] Failed to parse request JSON: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid JSON in request body"
@@ -242,11 +250,13 @@ async def process_mcp_request(
     
     # ジョブを作成
     job_id, job_dir = job_manager.create_job(server_type, session_key)
+    logger.info(f"[PROCESS_MCP_REQUEST] Created job {job_id} in {job_dir}")
     
     try:
         # リクエストを保存
         job_manager.save_request(job_id, request_data)
         
+        logger.info(f"[PROCESS_MCP_REQUEST] Executing request for job {job_id}")
         # MCPサーバープロセスでリクエストを実行
         response_data, exit_code, actual_job_dir = await process_manager.execute_request(
             server_type=server_type,
@@ -257,25 +267,26 @@ async def process_mcp_request(
         
         # 実際のワーキングディレクトリのjob_idを取得(statefulモード対応)
         actual_job_id = actual_job_dir.name
+        logger.info(f"[PROCESS_MCP_REQUEST] Request executed: exit_code={exit_code}")
+        if actual_job_id != job_id:
+            logger.info(f"[PROCESS_MCP_REQUEST] Stateful mode: actual working directory is {actual_job_id} (request job_id: {job_id})")
         
         # レスポンスを保存
         job_manager.save_response(job_id, response_data)
         
         # レスポンスをログに出力(デバッグ用)
-        logger.debug(f"MCP response for job {job_id}: {response_data}")
-        if actual_job_id != job_id:
-            logger.debug(f"Stateful mode: actual working directory is {actual_job_id}")
+        logger.debug(f"[PROCESS_MCP_REQUEST] MCP response for job {job_id}: {response_data}")
         
         # ジョブステータスを更新
         if exit_code == 0:
             job_manager.update_status(job_id, JobStatus.COMPLETED)
+            logger.info(f"[PROCESS_MCP_REQUEST] Job {job_id} completed successfully")
         else:
-            job_manager.update_status(
-                job_id,
-                JobStatus.FAILED,
-                f"Process exited with code {exit_code}"
-            )
+            error_msg = f"Process exited with code {exit_code}"
+            job_manager.update_status(job_id, JobStatus.FAILED, error_msg)
+            logger.warning(f"[PROCESS_MCP_REQUEST] Job {job_id} failed: {error_msg}")
         
+        logger.debug(f"[PROCESS_MCP_REQUEST] Extracting file info from response (actual_job_id={actual_job_id})")
         # レスポンスにダウンロードURLとファイル情報を追加
         # statefulモードの場合は実際のjob_idを使用
         response_data, files = _extract_file_info(
@@ -284,6 +295,7 @@ async def process_mcp_request(
             settings.base_url,
             file_path_fields
         )
+        logger.info(f"[PROCESS_MCP_REQUEST] Extracted {len(files)} files from response")
 
         # post_instractionがあればinstructionとして追加
         server_config = mcp_config.get_server_config(server_type)
@@ -324,15 +336,17 @@ async def process_mcp_request(
 
         # MCPOプロトコルの場合はOpenAI互換形式に変換
         if protocol_name == "MCPO":
+            logger.debug(f"[PROCESS_MCP_REQUEST] Converting to OpenAI format")
             openai_response = _convert_mcp_to_openai_format(response_data, files)
-            logger.debug(f"Converted to OpenAI format: {openai_response}")
+            logger.debug(f"[PROCESS_MCP_REQUEST] Converted to OpenAI format: {openai_response}")
             return openai_response
 
         # MCP形式のまま返却（従来の動作）
+        logger.info(f"[PROCESS_MCP_REQUEST] Returning MCP format response")
         return response_data
     
     except asyncio.TimeoutError:
-        logger.error(f"Timeout processing {protocol_name} request for job {job_id}")
+        logger.error(f"[PROCESS_MCP_REQUEST] Timeout processing {protocol_name} request for job {job_id}", exc_info=True)
         job_manager.update_status(job_id, JobStatus.FAILED, "Timeout")
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,

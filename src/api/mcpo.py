@@ -256,8 +256,10 @@ async def mcpo_tool_endpoint_with_path(server_type: str, tool_name: str, request
         OpenAI互換形式のレスポンス（JSON）
     """
     params = await request.json()
-    logger.info(f"[ENDPOINT] POST /{server_type}/{tool_name} called")
-    logger.info(f"[ENDPOINT] Tool parameters: {params}")
+    logger.info(f"[MCPO_ENDPOINT] POST /{server_type}/{tool_name} called")
+    logger.info(f"[MCPO_ENDPOINT] Tool: {tool_name}")
+    logger.debug(f"[MCPO_ENDPOINT] Tool parameters: {params}")
+    logger.debug(f"[MCPO_ENDPOINT] Request headers: {dict(request.headers)}")
     
     return await _handle_mcpo_tool_call(server_type, tool_name, params, request)
 
@@ -277,18 +279,22 @@ async def mcpo_tool_endpoint_legacy(server_type: str, request: Request):
         OpenAI互換形式のレスポンス（JSON）
     """
     body = await request.json()
-    logger.info(f"[ENDPOINT] POST /{server_type} called")
-    logger.info(f"[ENDPOINT] Request body: {body}")
+    logger.info(f"[MCPO_ENDPOINT] POST /{server_type} (legacy) called")
+    logger.debug(f"[MCPO_ENDPOINT] Request body: {body}")
+    logger.debug(f"[MCPO_ENDPOINT] Request headers: {dict(request.headers)}")
     
     # ツール名を抽出（OpenWebUIが送る場合）
     tool_name = body.pop("_tool_name", None)
     
     if not tool_name:
         # ツール名がない場合はエラー
+        logger.error(f"[MCPO_ENDPOINT] Missing _tool_name in request body")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Missing _tool_name in request body"
         )
+    
+    logger.info(f"[MCPO_ENDPOINT] Extracted tool_name: {tool_name}")
     
     return await _handle_mcpo_tool_call(server_type, tool_name, body, request)
 
@@ -311,6 +317,9 @@ async def _handle_mcpo_tool_call(
     Returns:
         OpenAI互換形式のレスポンス
     """
+    logger.info(f"[HANDLE_MCPO_TOOL_CALL] server_type={server_type}, tool_name={tool_name}")
+    logger.debug(f"[HANDLE_MCPO_TOOL_CALL] params={params}")
+    
     # MCP JSON-RPC形式にリクエストを構築
     mcp_request = {
         "jsonrpc": "2.0",
@@ -322,8 +331,7 @@ async def _handle_mcpo_tool_call(
         "id": 1
     }
     
-    logger.debug(f"[MCPO] Calling tool '{tool_name}' with params: {params}")
-    logger.debug(f"[MCPO] MCP request: {mcp_request}")
+    logger.debug(f"[HANDLE_MCPO_TOOL_CALL] MCP request constructed: {mcp_request}")
     
     # process_mcp_requestに渡す前に、requestオブジェクトのボディを置き換え
     class MockRequest:

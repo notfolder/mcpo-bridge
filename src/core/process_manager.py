@@ -9,12 +9,11 @@ import subprocess
 import json
 import logging
 import os
-from typing import Dict, Optional, Any, Tuple
+from typing import Dict, Optional, Tuple
 from pathlib import Path
 from datetime import datetime, timezone
 
 from src.core.config import settings, mcp_config
-from src.models.job import JobStatus
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +27,8 @@ class StatefulProcessInfo:
         server_type: str,
         session_key: str,
         idle_timeout: int,
-        working_dir: Path
+        working_dir: Path,
+        stderr_task: Optional[asyncio.Task] = None
     ):
         self.process = process
         self.server_type = server_type
@@ -40,6 +40,8 @@ class StatefulProcessInfo:
         self.working_dir = working_dir  # 実際のプロセスのワーキングディレクトリ
         # 同一プロセスへのリクエストを直列化するためのロック
         self.request_lock = asyncio.Lock()
+        # stderrを読み取る非同期タスク
+        self.stderr_task = stderr_task
     
     def is_healthy(self) -> bool:
         """
@@ -108,13 +110,19 @@ class ProcessManager:
         Returns:
             (レスポンスデータ, 終了コード, 実際のワーキングディレクトリ) のタプル
         """
+        logger.info(f"[EXECUTE_REQUEST] server_type={server_type}, method={request_data.get('method')}, session_key={session_key}")
+        logger.debug(f"[EXECUTE_REQUEST] job_dir={job_dir}")
+        logger.debug(f"[EXECUTE_REQUEST] request_data={request_data}")
+        
         # サーバー設定を取得
         server_config = mcp_config.get_server_config(server_type)
         if not server_config:
+            logger.error(f"[EXECUTE_REQUEST] Unknown server type: {server_type}")
             raise ValueError(f"Unknown server type: {server_type}")
         
         # ステートフルモードかチェック
         is_stateful = settings.stateful_enabled and mcp_config.is_stateful(server_type)
+        logger.info(f"[EXECUTE_REQUEST] Mode: {'stateful' if is_stateful else 'stateless'} (stateful_enabled={settings.stateful_enabled}, server_stateful={mcp_config.is_stateful(server_type)}, has_session_key={bool(session_key)})")
         
         if is_stateful and session_key:
             return await self._execute_stateful(
@@ -192,10 +200,16 @@ class ProcessManager:
             (レスポンスデータ, 終了コード, 実際のワーキングディレクトリ) のタプル
         """
         async with self.semaphore:
-            logger.info(f"Executing stateless request in {job_dir}")
+            logger.info(f"[STATELESS] Executing stateless request in {job_dir}")
+            logger.debug(f"[STATELESS] Server config: {server_config}")
             
             # プロセスを起動
             process = await self._start_process(server_config, job_dir)
+            
+            # stderrを読み取る非同期タスクを起動
+            stderr_task = asyncio.create_task(
+                self._read_stderr(process, f"[{server_type}]")
+            )
             
             try:
                 # resolve_path_fieldsが指定されている場合、ファイルパスを絶対パスに変換
@@ -249,6 +263,13 @@ class ProcessManager:
                 return response_data, exit_code, job_dir
             
             finally:
+                # stderrタスクをキャンセル
+                if not stderr_task.done():
+                    stderr_task.cancel()
+                    try:
+                        await stderr_task
+                    except asyncio.CancelledError:
+                        pass
                 # プロセスを確実に終了
                 await self._terminate_process(process)
     
@@ -354,6 +375,11 @@ class ProcessManager:
         idle_timeout = mcp_config.get_idle_timeout(server_type)
         process = await self._start_process(server_config, job_dir)
         
+        # stderrを読み取る非同期タスクを起動
+        stderr_task = asyncio.create_task(
+            self._read_stderr(process, f"[{server_type}:{session_key}]")
+        )
+        
         # MCPプロトコルの初期化シーケンスを実行
         logger.debug(f"Initializing MCP process for {session_key}")
         
@@ -391,7 +417,8 @@ class ProcessManager:
             server_type=server_type,
             session_key=session_key,
             idle_timeout=idle_timeout,
-            working_dir=job_dir  # 実際のワーキングディレクトリを記録
+            working_dir=job_dir,  # 実際のワーキングディレクトリを記録
+            stderr_task=stderr_task
         )
         
         self.stateful_processes[server_type][session_key] = process_info
@@ -409,9 +436,61 @@ class ProcessManager:
         if server_type in self.stateful_processes:
             if session_key in self.stateful_processes[server_type]:
                 process_info = self.stateful_processes[server_type][session_key]
+                # stderrタスクをキャンセル
+                if process_info.stderr_task and not process_info.stderr_task.done():
+                    process_info.stderr_task.cancel()
+                    try:
+                        await process_info.stderr_task
+                    except asyncio.CancelledError:
+                        pass
                 await self._terminate_process(process_info.process)
                 del self.stateful_processes[server_type][session_key]
                 logger.info(f"Removed stateful process for {session_key}")
+    
+    async def _read_stderr(self, process: subprocess.Popen, prefix: str):
+        """
+        プロセスのstderrを非同期で読み取り、infoレベルでログ出力
+        
+        Args:
+            process: Popenオブジェクト
+            prefix: ログ出力時のプレフィックス
+        """
+        try:
+            loop = asyncio.get_event_loop()
+            while True:
+                # プロセスが終了していたら中断
+                if process.poll() is not None:
+                    break
+                
+                try:
+                    # stderrから1行読み込む（非同期）
+                    line_bytes = await asyncio.wait_for(
+                        loop.run_in_executor(None, process.stderr.readline),
+                        timeout=1.0
+                    )
+                    
+                    if not line_bytes:
+                        # EOFに達した場合
+                        break
+                    
+                    # デコードしてログ出力
+                    line = line_bytes.decode('utf-8', errors='replace').rstrip('\n\r')
+                    if line:  # 空行は出力しない
+                        logger.info(f"{prefix} [stderr] {line}")
+                
+                except asyncio.TimeoutError:
+                    # タイムアウトは正常（次の読み込みを試みる）
+                    continue
+                except Exception as e:
+                    logger.debug(f"Error reading stderr: {e}")
+                    break
+        
+        except asyncio.CancelledError:
+            logger.debug(f"{prefix} stderr reader cancelled")
+            raise
+        except Exception as e:
+            logger.error(f"{prefix} stderr reader error: {e}")
+    
     
     async def _start_process(
         self,
@@ -454,9 +533,10 @@ class ProcessManager:
         # コマンドライン引数を構築
         cmd = [command] + args
         
-        logger.info(f"Starting process: {' '.join(cmd)}")
-        logger.info(f"Working directory: {job_dir}")
-        logger.info(f"Environment variables: {resolved_env_vars}")
+        logger.info(f"[START_PROCESS] Command: {' '.join(cmd)}")
+        logger.info(f"[START_PROCESS] Working directory: {job_dir}")
+        logger.info(f"[START_PROCESS] Custom environment variables: {resolved_env_vars}")
+        logger.debug(f"[START_PROCESS] Full environment: {env}")
         
         # プロセスを起動
         process = subprocess.Popen(
@@ -504,6 +584,9 @@ class ProcessManager:
         request_json = json.dumps(request_data) + "\n"
         request_bytes = request_json.encode('utf-8')
         
+        logger.info(f"[COMMUNICATE] Sending request: method={request_data.get('method')}, id={request_data.get('id')}")
+        logger.debug(f"[COMMUNICATE] Full request: {request_json.strip()}")
+        
         # 通知かどうかを判定（"id"フィールドがないリクエストは通知）
         is_notification = "id" not in request_data
         
@@ -536,23 +619,27 @@ class ProcessManager:
                 timeout=timeout
             )
             
-            # stderrを非ブロッキングで読み込む（あれば）
-            stderr_data = b""
-            # ここでは stderr は読まないようにする（ブロックする可能性があるため）
+            # stdoutの内容をログ出力
+            if stdout_line:
+                stdout_text = stdout_line.decode('utf-8', errors='replace').rstrip('\n\r')
+                if stdout_text:
+                    logger.info(f"[COMMUNICATE] [stdout] {stdout_text}")
             
             # プロセスが終了したかチェック
             exit_code = process.poll()
             if exit_code is None:
                 exit_code = 0  # まだ実行中
             
-            logger.debug(f"Process status: exit_code={exit_code}, still_running={exit_code is None or exit_code == 0}")
+            logger.info(f"[COMMUNICATE] Process status: exit_code={exit_code}, still_running={exit_code is None or exit_code == 0}")
             
             # レスポンスをパース
             if stdout_line:
                 try:
                     response_data = json.loads(stdout_line.decode('utf-8'))
+                    logger.debug(f"[COMMUNICATE] Parsed response: {response_data}")
                 except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse MCP server response as JSON: {e}")
+                    logger.error(f"[COMMUNICATE] Failed to parse MCP server response as JSON: {e}")
+                    logger.error(f"[COMMUNICATE] Raw response (first 500 chars): {stdout_line.decode('utf-8', errors='replace')[:500]}")
                     # JSON-RPC エラーレスポンス形式で返す
                     response_data = {
                         "jsonrpc": "2.0",
@@ -564,6 +651,7 @@ class ProcessManager:
                         "id": request_data.get("id")
                     }
             else:
+                logger.warning("[COMMUNICATE] No response from MCP server")
                 # JSON-RPC エラーレスポンス形式で返す
                 response_data = {
                     "jsonrpc": "2.0",
@@ -575,6 +663,7 @@ class ProcessManager:
                     "id": request_data.get("id")
                 }
             
+            logger.info(f"[COMMUNICATE] Returning response with exit_code={exit_code}")
             return response_data, exit_code if exit_code is not None else 0
         
         except asyncio.TimeoutError:
