@@ -13,13 +13,6 @@ RUN apt-get update && apt-get install -y \
     python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Node.jsのインストール（Mermaid CLI用、npx経由）
-# Node.js 20.x LTSをインストール（Debian公式リポジトリから）
-RUN apt-get update && apt-get install -y \
-    nodejs \
-    npm \
-    && rm -rf /var/lib/apt/lists/*
-
 # Quarto CLIのインストール（quarto_mcp用）
 # マルチアーキテクチャ対応（amd64/arm64）
 # TARGETARCHを使用してアーキテクチャに応じたパッケージをダウンロード
@@ -85,8 +78,10 @@ RUN if [ "${TARGETARCH}" = "arm64" ]; then \
         quarto install tinytex; \
     fi
 
-# Mermaid CLIのインストール（Quartoの標準Mermaid機能用）
-RUN npm install -g @mermaid-js/mermaid-cli
+# Quartoには既にMermaid JS (mermaid.min.js) とPuppeteerが内蔵されているため、
+# 外部のNode.js、npm、Mermaid CLIは不要
+# /opt/quarto/share/formats/html/mermaid/mermaid.min.js (2.6MB) がバンドル済み
+# mermaid-format: png を設定すると、オフライン環境でも動作
 
 # # Quarto拡張機能を事前インストール
 # # /opt/quarto-project/_extensionsに拡張機能をダウンロード
