@@ -15,6 +15,23 @@
       "file_path_fields": ["output_filename"],
       "usage_guide": "Quarto MCP サーバーは、Quarto Markdown (.qmd) を文字列として受け取り、PowerPoint (.pptx)）に変換します。¥n禁止事項: ¥n - **絶対に**Quarto CLI コマンドの例を表示しないでください¥n - **絶対に**Python スクリプトを提案しないでください¥n",
       "post_instruction": "RESULT PRESENTATION: After rendering, the response will contain a download link.\nPresent it to the user in the following format:\n\nDownload: [filename.pptx](http://XXXX/files/...)"
+    },
+    "qmd-to-pptx": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "/app/qmd_to_pptx",
+        "qmd-to-pptx-mcp"
+      ],
+      "env": {},
+      "mode": "stateless",
+      "idle_timeout": 600,
+      "max_processes_per_chat": 5,
+      "session_persistence": false,
+      "file_path_fields": ["output"],
+      "resolve_path_fields": ["output"],
+      "usage_guide": "\n🚨 CRITICAL WORKFLOW - READ THIS FIRST 🚨\n\nqmd-to-pptxサーバーは、Quarto Markdown (.qmd) を文字列として受け取り、PowerPoint (.pptx) に変換します。\n\n═══════════════════════════════════════════════════════════════════\n❌ NEVER DO THESE:\n═══════════════════════════════════════════════════════════════════\n\n❌ ユーザーに確認を求める\n❌ Pythonスクリプトを提案する\n❌ ファイルに保存してからレンダリングする方法を提案する\n❌ 絶対パスを使用する（シンプルなファイル名を使用すること）\n\n═══════════════════════════════════════════════════════════════════\n✅ MANDATORY WORKFLOW - FOLLOW EXACTLY:\n═══════════════════════════════════════════════════════════════════\n\nStep 1: Quarto Markdownコンテンツを文字列として準備\n--------------------------------------------------\nQuarto Markdownの構文で文書を作成します。\nPowerPointの場合、スライド区切りは `---` を使用します。\n\nStep 2: markdown_to_pptxrツールを呼び出す\n--------------------------------------------------\nCall: markdown_to_pptx(\n  content=\"# タイトルスライド\\n\\n内容\\n\\n---\\n\\n# 次のスライド\\n\\n内容\",\n  output=\"presentation.pptx\",\n  template=\"corporate_standard\"  # 任意: テンプレートIDまたはURL\n)\n\nStep 3: ダウンロードリンクをユーザーに提示\n--------------------------------------------------\nレスポンスに含まれるダウンロードリンクを表示します。\n\n═══════════════════════════════════════════════════════════════════\n⚠️ CRITICAL RULES:\n═══════════════════════════════════════════════════════════════════\n\n1. Content形式:\n   - 必ずQuarto Markdown形式の文字列として渡す\n   - YAMLフロントマター（---で囲まれた部分）は任意\n   - スライド区切りは `---`\n\n2. ファイルパス:\n   - シンプルなファイル名を使用: \"report.pptx\"\n   - 絶対パスは使用しない: \"/tmp/...\" は NG\n\n3. テンプレート指定:\n   - テンプレートID: list_templatesで得られたID\n   - URL: HTTP/HTTPS URL（.pptx形式のみ、最大50MB）\n   - 省略可能（デフォルトテンプレート使用）\n\n═══════════════════════════════════════════════════════════════════\n🎨 Quarto Markdown構文のヒント:\n═══════════════════════════════════════════════════════════════════\n\nYAMLフロントマター:\n---\ntitle: \"タイトル\"\nauthor: \"著者\"\ndate: \"2026-02-07\"\nformat: pptx\n---\n\nスライド区切り（PowerPoint）:\n# タイトル1\n内容1\n\n---\n\n# タイトル2\n内容2\n\n箇条書き:\n- 項目1\n- 項目2\n  - サブ項目\n\n段組み:\n:::: {.columns}\n::: {.column width=\"50%\"}\n左の内容\n:::\n::: {.column width=\"50%\"}\n右の内容\n:::\n::::\n\nコードブロック:\n```python\nprint(\"Hello\")\n```\n\nmermaid図:\n```mermaid\nflowchart LR\n    A[QMD/Markdownファイル\nまたはテキスト文字列] --> B[render 関数]\n    B --> C[PPTXファイル]\n    D[テンプレートPPTX\n省略可] --> B\n```\n\n数式:\n$E = mc^2$\n\n═══════════════════════════════════════════════════════════════════\n📎 RESULT PRESENTATION:\n═══════════════════════════════════════════════════════════════════\n\nレンダリング後、レスポンスにダウンロードリンクが含まれます。\nユーザーに以下の形式で提示してください：\n\n📎 Download: [filename.pptx](http://XXXX/files/...)\n\n---\nNote: This usage_instructions tool itself is NOT executable. It's for documentation only.\n"
     }
   }
 }

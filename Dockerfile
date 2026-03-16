@@ -11,72 +11,75 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     build-essential \
     python3-dev \
+    git \
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
 
 # Quarto CLIのインストール（quarto_mcp用）
 # マルチアーキテクチャ対応（amd64/arm64）
 # TARGETARCHを使用してアーキテクチャに応じたパッケージをダウンロード
 ARG TARGETARCH
-ENV QUARTO_VERSION=1.8.27
-RUN apt-get update && apt-get install -y gdebi-core && \
-    case ${TARGETARCH} in \
-        amd64) QUARTO_ARCH=amd64 ;; \
-        arm64) QUARTO_ARCH=arm64 ;; \
-        *) echo "Unsupported architecture: ${TARGETARCH}" && exit 1 ;; \
-    esac && \
-    curl -LO https://github.com/quarto-dev/quarto-cli/releases/download/v${QUARTO_VERSION}/quarto-${QUARTO_VERSION}-linux-${QUARTO_ARCH}.deb && \
-    gdebi -n quarto-${QUARTO_VERSION}-linux-${QUARTO_ARCH}.deb && \
-    rm quarto-${QUARTO_VERSION}-linux-${QUARTO_ARCH}.deb && \
-    rm -rf /var/lib/apt/lists/*
+# ENV QUARTO_VERSION=1.8.27
+# RUN apt-get update && apt-get install -y gdebi-core && \
+#     case ${TARGETARCH} in \
+#         amd64) QUARTO_ARCH=amd64 ;; \
+#         arm64) QUARTO_ARCH=arm64 ;; \
+#         *) echo "Unsupported architecture: ${TARGETARCH}" && exit 1 ;; \
+#     esac && \
+#     curl -LO https://github.com/quarto-dev/quarto-cli/releases/download/v${QUARTO_VERSION}/quarto-${QUARTO_VERSION}-linux-${QUARTO_ARCH}.deb && \
+#     gdebi -n quarto-${QUARTO_VERSION}-linux-${QUARTO_ARCH}.deb && \
+#     rm quarto-${QUARTO_VERSION}-linux-${QUARTO_ARCH}.deb && \
+#     rm -rf /var/lib/apt/lists/*
 
 # Chromiumのインストール（ウェブサイト機能用）
 # ARM64ではQuarto公式Chromiumが対応していないため、システムのChromiumを使用
-RUN if [ "${TARGETARCH}" = "arm64" ]; then \
-        apt-get update && apt-get install -y \
-        chromium \
-        chromium-driver \
-        fonts-liberation \
-        libnss3 \
-        libxss1 \
-        libappindicator3-1 \
-        libasound2 \
-        libgbm1 \
-        libatk-bridge2.0-0 \
-        libgtk-3-0 \
-        libx11-xcb1 \
-        libxcomposite1 \
-        libxcursor1 \
-        libxdamage1 \
-        libxi6 \
-        libxtst6 \
-        libpangocairo-1.0-0 \
-        libcups2 \
-        libxrandr2 \
-        && rm -rf /var/lib/apt/lists/* \
-        && ln -sf /usr/bin/chromium /usr/bin/google-chrome || true; \
-    else \
-        quarto tools install chromium; \
-    fi
+# RUN if [ "${TARGETARCH}" = "arm64" ]; then \
+#         apt-get update && apt-get install -y \
+#         chromium \
+#         chromium-driver \
+#         fonts-liberation \
+#         libnss3 \
+#         libxss1 \
+#         libappindicator3-1 \
+#         libasound2 \
+#         libgbm1 \
+#         libatk-bridge2.0-0 \
+#         libgtk-3-0 \
+#         libx11-xcb1 \
+#         libxcomposite1 \
+#         libxcursor1 \
+#         libxdamage1 \
+#         libxi6 \
+#         libxtst6 \
+#         libpangocairo-1.0-0 \
+#         libcups2 \
+#         libxrandr2 \
+#         && rm -rf /var/lib/apt/lists/* \
+#         && ln -sf /usr/bin/chromium /usr/bin/google-chrome || true; \
+#     else \
+#         quarto tools install chromium; \
+#     fi
 
 # ARM64の場合、QuartoにChromiumのパスを教える
-ENV CHROME_PATH=/usr/bin/chromium
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+# ENV CHROME_PATH=/usr/bin/chromium
+# ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+# ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
 # TeX環境のインストール（PDF生成用）
 # ARM64ではTinyTeXがサポートされていないため、TeX Liveを使用
-RUN if [ "${TARGETARCH}" = "arm64" ]; then \
-        apt-get update && apt-get install -y \
-        texlive-latex-base \
-        texlive-latex-extra \
-        texlive-fonts-recommended \
-        texlive-fonts-extra \
-        texlive-lang-japanese \
-        texlive-xetex \
-        && rm -rf /var/lib/apt/lists/*; \
-    else \
-        quarto install tinytex; \
-    fi
+# RUN if [ "${TARGETARCH}" = "arm64" ]; then \
+#         apt-get update && apt-get install -y \
+#         texlive-latex-base \
+#         texlive-latex-extra \
+#         texlive-fonts-recommended \
+#         texlive-fonts-extra \
+#         texlive-lang-japanese \
+#         texlive-xetex \
+#         && rm -rf /var/lib/apt/lists/*; \
+#     else \
+#         quarto install tinytex; \
+#     fi
 
 # Quartoには既にMermaid JS (mermaid.min.js) とPuppeteerが内蔵されているため、
 # 外部のNode.js、npm、Mermaid CLIは不要
@@ -105,6 +108,9 @@ RUN pip install --no-cache-dir uv
 # Quarto MCPサーバーをキャッシュ
 # RUN uvx --from git+https://github.com/notfolder/quarto_mcp quarto-mcp --help || true
 
+# qmd_to_pptxをキャッシュ
+# RUN uvx --from git+https://github.com/notfolder/qmd-to-pptx qmd-to-pptx-mcp --help || true
+
 # Pythonの依存関係ファイルをコピー
 COPY requirements.txt .
 
@@ -113,6 +119,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # アプリケーションコードをコピー
 COPY . .
+
+RUN git clone https://github.com/notfolder/qmd_to_pptx.git
+
+WORKDIR /app/qmd_to_pptx
+
+RUN uv sync
+
+WORKDIR /app
 
 # 設定ディレクトリを作成
 RUN mkdir -p /app/config

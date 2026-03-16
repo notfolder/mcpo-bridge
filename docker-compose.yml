@@ -43,6 +43,7 @@ services:
       context: .
       dockerfile: Dockerfile
     volumes:
+      - ./config:/app/config:ro
       - ./data/mcpo-jobs:/tmp/mcpo-jobs
       - ./data/mcpo-logs:/var/log/mcpo
     env_file:
